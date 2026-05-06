@@ -124,7 +124,7 @@ Postgres and Qdrant have different jobs. Postgres is the source of truth for exa
 
 ## Repository Status
 
-This repository is currently in a documentation-first stage. It does not yet contain application source code, package manager configuration, database schema, Docker Compose configuration, or automated tests.
+This repository is currently in a documentation-first stage with Phase 2 local infrastructure started. It contains Docker Compose configuration for local Postgres and Qdrant plus an ignored local upload storage path. It does not yet contain application source code, package manager configuration, database schema, or automated tests.
 
 Planned top-level structure:
 
@@ -146,6 +146,36 @@ docs/               product, architecture, agent, roadmap, and setup documentati
 
 Generated outputs, caches, secrets, and private company documents must stay out of the repository.
 
+## Local Infrastructure
+
+Copy the environment template and create the ignored upload directory:
+
+```powershell
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force uploads
+```
+
+Start Postgres and Qdrant:
+
+```bash
+docker compose up -d postgres qdrant
+```
+
+Default local endpoints:
+
+- Postgres: `localhost:5432`
+- Qdrant HTTP: `http://localhost:6333`
+- Qdrant gRPC: `localhost:6334`
+- Private local uploads: `./uploads`
+
+Stop the infrastructure with:
+
+```bash
+docker compose down
+```
+
+Use `docker compose down -v` only when you intentionally want to delete local Postgres and Qdrant data volumes.
+
 ## Planned Development Commands
 
 No commands are configured yet. Once tooling exists, prefer project scripts instead of ad hoc commands:
@@ -159,17 +189,15 @@ npm run build
 
 The Python agent service will also receive documented commands when it is added.
 
-## Local Setup Placeholder
+## Future Application Setup
 
-Local setup will be added after the scaffold milestone. The intended local environment will include:
+The future application setup will include:
 
 - Node.js for the Next.js app
 - Python for the FastAPI agent service
 - uv for Python dependency management and agent commands
-- Postgres for structured data
-- Qdrant for vector search
 - OpenAI API credentials
-- Docker Compose for running local services together
+- Docker Compose entries for the web and agent services
 
 Do not commit real API keys, database credentials, customer documents, or private company data.
 

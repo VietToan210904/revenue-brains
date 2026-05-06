@@ -2,7 +2,7 @@
 
 ## Summary
 
-Revenue Brains is not scaffolded yet. This document defines the intended development setup so future implementation steps have a clear target.
+Revenue Brains currently has Phase 2 local infrastructure for Postgres, Qdrant, and private local upload storage. The Next.js web app and Python agent service are still planned and are not implemented in this infrastructure-only scaffold.
 
 ## Expected Stack
 
@@ -26,36 +26,77 @@ The local development environment should eventually run:
 
 Original chat attachments should live outside Git. The MVP local contract should use an app-managed private upload volume, or an ignored local upload directory, mounted into both the Next.js app and Python agent service. Later deployments can map the same file storage key contract to object-storage-compatible storage. Optional later services may include a background worker, object storage, or a webhook test receiver.
 
+The current `docker-compose.yml` starts only the infrastructure services:
+
+- `postgres` on host port `5432`
+- `qdrant` on host port `6333` for HTTP and `6334` for gRPC
+
+The current local upload path is `./uploads`, controlled by `UPLOAD_STORAGE_PATH` and ignored by Git. The Compose file defines the future upload bind mount shape, but it does not start web or agent containers yet.
+
 ## Environment Variables
 
 Template variables currently listed in `.env.example`:
 
 ```txt
-DATABASE_URL=
+APP_ENV=development
+PYTHON_AGENT_URL=http://localhost:8000
 OPENAI_API_KEY=
-QDRANT_URL=
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=revenue_brains
+POSTGRES_USER=revenue_brains
+POSTGRES_PASSWORD=change-me-local-only
+DATABASE_URL=postgresql://revenue_brains:change-me-local-only@localhost:5432/revenue_brains
+QDRANT_URL=http://localhost:6333
 QDRANT_API_KEY=
-PYTHON_AGENT_URL=
-UPLOAD_STORAGE_PATH=
+QDRANT_HTTP_PORT=6333
+QDRANT_GRPC_PORT=6334
+UPLOAD_STORAGE_PATH=./uploads
 WEBHOOK_URL=
 WEBHOOK_SECRET=
-APP_ENV=development
 ```
 
-Real values should live in ignored local environment files such as `.env.local`. Only placeholder templates should be committed.
+Real values should live in ignored local environment files such as `.env` or `.env.local`. Docker Compose reads `.env` automatically when present. Only placeholder templates should be committed.
 
-## Future Docker Compose Plan
+## Local Infrastructure Commands
 
-The scaffold milestone should add Docker Compose services for:
+Create local environment and upload storage files:
 
-- `app`: Next.js application
+```powershell
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force uploads
+```
+
+Start the local infrastructure:
+
+```bash
+docker compose up -d postgres qdrant
+```
+
+Check service state:
+
+```bash
+docker compose ps
+```
+
+Stop services while keeping named database volumes:
+
+```bash
+docker compose down
+```
+
+Remove local database volumes only when you intentionally want to wipe local data:
+
+```bash
+docker compose down -v
+```
+
+The future full scaffold should add Docker Compose services for:
+
+- `web`: Next.js application
 - `agent`: Python FastAPI service
-- `postgres`: structured database
-- `qdrant`: vector database
 
-The scaffold should also add a named attachment/upload volume or ignored local upload directory mounted into `app` and `agent`. `uploads` should not be treated as a separate service unless the project later chooses an object-storage-compatible service.
-
-The local setup should let a builder start the system with one documented command once scaffolded.
+The upload path should then be mounted into both `web` and `agent`. `uploads` should not be treated as a separate service unless the project later chooses an object-storage-compatible service.
 
 ## Future Commands
 
@@ -91,4 +132,16 @@ If Python tooling changes later, update `README.md`, `AGENTS.md`, `docs/scaffold
 
 ## Setup Status
 
-This setup is planned, not implemented. The current repository contains documentation only.
+Implemented:
+
+- Docker Compose services for local Postgres and Qdrant.
+- Named Docker volumes for Postgres and Qdrant data.
+- Ignored local upload directory contract through `UPLOAD_STORAGE_PATH=./uploads`.
+- Environment template values aligned with the local infrastructure ports.
+
+Not implemented yet:
+
+- Next.js app service.
+- Python FastAPI agent service.
+- Health endpoints for app or agent.
+- Chat ingestion, extraction, Qdrant ingestion, RAG, auth, MCP, or external sync.

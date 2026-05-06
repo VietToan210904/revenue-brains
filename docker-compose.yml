@@ -1,0 +1,43 @@
+name: revenue-brains-local
+
+# Phase 2 local infrastructure only.
+# The upload bind mount is defined here for future web/agent services; no app
+# containers are scaffolded in this change.
+x-upload-storage: &upload-storage
+  type: bind
+  source: ${UPLOAD_STORAGE_PATH:-./uploads}
+  target: /var/lib/revenue-brains/uploads
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: revenue-brains-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-revenue_brains}
+      POSTGRES_USER: ${POSTGRES_USER:-revenue_brains}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.6
+    container_name: revenue-brains-qdrant
+    restart: unless-stopped
+    ports:
+      - "${QDRANT_HTTP_PORT:-6333}:6333"
+      - "${QDRANT_GRPC_PORT:-6334}:6334"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+volumes:
+  postgres_data:
+  qdrant_data:
