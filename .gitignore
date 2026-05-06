@@ -1,0 +1,32 @@
+# Local environment and secrets
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# JavaScript and Next.js generated files
+node_modules/
+.next/
+out/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Python generated files and virtual environments
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Local uploads, data, and logs
+uploads/
+.uploads/
+tmp/
+temp/
+*.log
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
