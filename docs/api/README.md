@@ -1,6 +1,6 @@
 # API Contracts
 
-This directory documents the HTTP boundary between the TypeScript web app and the Python agent service. The current Phase 3 implementation includes web health, chat ingestion, conversation/job reads, Python health, Python document handoff acceptance, and placeholder Q&A routes.
+This directory documents the HTTP boundary between the TypeScript web app and the Python agent service. The current implementation includes web health, chat ingestion, conversation/job reads, Python health, LangGraph document ingestion with extraction and Qdrant vector storage, and LangGraph Q&A planning/answer routes.
 
 ## Ownership
 
@@ -44,17 +44,17 @@ Fields:
 - `userInstructions`: optional processing instruction text.
 - `files`: zero or more attached files.
 
-The route creates or updates a conversation, stores the user chat message, saves attached files under ignored local upload storage, stores document metadata and processing jobs in Postgres, calls Python `POST /documents/process` once per document, and stores an assistant status reply.
+The route creates or updates a conversation, stores the user chat message, saves attached files under ignored local upload storage, stores document metadata and processing jobs in Postgres, calls Python `POST /documents/process` once per document, saves returned extraction records/fields/source references/vector references through Prisma, updates status, and stores an assistant reply.
 
-Phase 3 returns handoff/job status only. It does not parse document text, extract fields, create embeddings, or use Qdrant.
+If the chat message has no attachments, the same route treats the message as a company-brain question. It calls Python `POST /qa/plan`, fetches TypeScript-owned Postgres evidence when requested, calls Python `POST /qa/answer`, and stores the answer as an assistant message.
 
 ### `GET /api/chat/:conversationId`
 
-Returns one conversation with ordered messages, attached documents, and processing jobs.
+Returns one conversation with ordered messages, attached documents, processing jobs, extracted records, extracted fields, source references, and vector references.
 
 ### `GET /api/jobs/:jobId`
 
-Returns one processing job with its document metadata.
+Returns one processing job with its document metadata and extracted record when available.
 
 ## Implemented Agent Endpoints
 
@@ -73,7 +73,7 @@ Example response:
 
 ### `POST /documents/process`
 
-Current status: implemented as a Phase 3 accepted stub that validates the request body and returns `202`.
+Current status: implemented as LangGraph synchronous document ingestion. The endpoint resolves `fileStorageKey` under `UPLOAD_STORAGE_PATH`, parses supported text-based files, classifies the document, extracts structured data with LangChain structured output unless test processing options request deterministic extraction, returns an AI-owned `agentAssessment`, chunks parsed text, embeds chunks, stores them in Qdrant, and returns source references plus vector references.
 
 Request shape:
 
@@ -83,7 +83,7 @@ Request shape:
   "messageId": "msg_123",
   "documentId": "doc_123",
   "workspaceId": "workspace_123",
-  "fileStorageKey": "uploads/documents/doc_123.pdf",
+  "fileStorageKey": "documents/doc_123.pdf",
   "checksum": "sha256:placeholder",
   "originalFilename": "invoice.pdf",
   "contentType": "application/pdf",
@@ -92,23 +92,118 @@ Request shape:
 }
 ```
 
-Current accepted-stub response:
+Successful extraction response:
 
 ```json
 {
-  "status": "accepted",
-  "endpoint": "/documents/process",
+  "status": "extracted",
   "documentId": "doc_123",
-  "processingImplemented": false,
-  "message": "Document processing was accepted for a future extraction phase."
+  "documentType": "INVOICE",
+  "title": "Invoice INV-1001",
+  "commonFields": [
+    {
+      "name": "title",
+      "label": "Title",
+      "fieldType": "STRING",
+      "valueString": "Invoice INV-1001",
+      "valueNumber": null,
+      "valueDate": null,
+      "currency": null,
+      "valueJson": null,
+      "confidence": 0.92,
+      "required": true,
+      "validationStatus": "passed"
+    }
+  ],
+  "typeSpecificFields": [
+    {
+      "name": "invoice_number",
+      "label": "Invoice Number",
+      "fieldType": "STRING",
+      "valueString": "INV-1001",
+      "valueNumber": null,
+      "valueDate": null,
+      "currency": null,
+      "valueJson": null,
+      "confidence": 0.91,
+      "required": true,
+      "validationStatus": "passed"
+    }
+  ],
+  "summary": "Invoice from Acme Cloud for hosted services.",
+  "keyFacts": ["Vendor: Acme Cloud", "Invoice Number: INV-1001"],
+  "tags": ["invoice", "finance"],
+  "documentConfidence": 0.9,
+  "fieldConfidences": {
+    "invoice_number": 0.91
+  },
+  "validation": {
+    "status": "passed",
+    "missingRequiredFields": [],
+    "warnings": []
+  },
+  "agentAssessment": {
+    "status": "extracted",
+    "validationStatus": "passed",
+    "documentConfidence": 0.9,
+    "reviewRequired": false,
+    "reviewReasons": [],
+    "missingFields": [],
+    "uncertainFields": [],
+    "automationDecision": "safe_to_save",
+    "automationDecisionReason": "All important fields are supported by evidence."
+  },
+  "sourceReferences": [
+    {
+      "fieldName": "invoice_number",
+      "pageNumber": 1,
+      "paragraphIndex": null,
+      "lineStart": null,
+      "lineEnd": null,
+      "charStart": null,
+      "charEnd": null,
+      "evidenceSnippet": "Invoice Number: INV-1001"
+    }
+  ],
+  "vectorReferences": [
+    {
+      "chunkId": "doc_123:chunk:0",
+      "qdrantCollection": "revenue_brains_documents",
+      "qdrantPointId": "9d8f0c5e-2e29-5e99-9282-8f4c973e9f65",
+      "chunkIndex": 0,
+      "contentPreview": "Invoice Number: INV-1001 Vendor: Acme Cloud...",
+      "metadata": {
+        "workspaceId": "workspace_123",
+        "documentId": "doc_123",
+        "documentType": "INVOICE"
+      }
+    }
+  ],
+  "chatReply": "Processed as Invoice with 90% confidence. Invoice Number: INV-1001.",
+  "processingImplemented": true
 }
 ```
 
-Future processing response should include detected document type, extracted fields, validation status, confidence, source references, extracted facts, summary, Qdrant vector references, chat reply content, and structured errors when processing fails.
+The `status` value is the agent's decision. `extracted` means the agent believes the record is ready to save as extracted; `needs_review` means the agent wants the result kept visible but reviewable. Missing files, unsupported formats, parse failures, model failures, malformed agent assessments, and invalid extractions return structured non-2xx errors:
+
+```json
+{
+  "status": "error",
+  "code": "missing_file",
+  "message": "The uploaded document file was not found in private storage.",
+  "documentId": "doc_123",
+  "processingImplemented": true,
+  "details": {
+    "fileStorageKey": "documents/doc_123.pdf"
+  }
+}
+```
+
+Python owns Qdrant writes and returns vector references. TypeScript persists those references in Postgres so semantic chunks remain auditable back to source documents and extracted records.
 
 ### `POST /qa/plan`
 
-Current status: implemented as a placeholder that validates the request body and returns `501`.
+Current status: implemented as a LangGraph retrieval planner.
 
 Request shape:
 
@@ -121,21 +216,25 @@ Request shape:
 }
 ```
 
-Current placeholder response:
+Successful response:
 
 ```json
 {
-  "status": "not_implemented",
-  "endpoint": "/qa/plan",
-  "message": "Q&A retrieval planning is intentionally not implemented yet."
+  "status": "planned",
+  "retrievalMode": "hybrid",
+  "postgresQuery": {
+    "documentType": "CONTRACT"
+  },
+  "qdrantQuery": "What does the renewal clause say?",
+  "reasoning": "The answer needs exact contract records and semantic clause context."
 }
 ```
 
-Future response should identify whether exact Postgres evidence, Qdrant semantic evidence, or both are needed.
+`retrievalMode` is `postgres`, `qdrant`, or `hybrid`. TypeScript owns any Postgres reads implied by the plan.
 
 ### `POST /qa/answer`
 
-Current status: implemented as a placeholder that validates the request body and returns `501`.
+Current status: implemented as a LangGraph Q&A answer generator.
 
 Request shape:
 
@@ -144,22 +243,35 @@ Request shape:
   "workspaceId": "workspace_123",
   "conversationId": "conv_123",
   "question": "What does the renewal clause say?",
+  "retrievalMode": "hybrid",
   "postgresEvidence": [],
   "qdrantContext": []
 }
 ```
 
-Current placeholder response:
+Successful response:
 
 ```json
 {
-  "status": "not_implemented",
-  "endpoint": "/qa/answer",
-  "message": "Q&A answer generation is intentionally not implemented yet."
+  "status": "answered",
+  "answer": "The renewal clause requires 30 days notice before the renewal date.",
+  "retrievalMode": "hybrid",
+  "citations": [
+    {
+      "sourceType": "qdrant",
+      "documentId": "doc_123",
+      "recordId": null,
+      "qdrantPointId": "9d8f0c5e-2e29-5e99-9282-8f4c973e9f65",
+      "title": "Master Services Agreement",
+      "snippet": "renewal requires 30 days notice"
+    }
+  ],
+  "confidence": 0.86,
+  "limitations": []
 }
 ```
 
-Future response should return an answer with citations where possible and should say when there is not enough evidence.
+The answer endpoint retrieves Qdrant context when the request mode is `qdrant` or `hybrid`. For `postgres`, it answers from the supplied Postgres evidence only.
 
 ## MVP Processing Request
 
@@ -177,6 +289,8 @@ The TypeScript app sends Python:
 - optional `processingOptions`
 
 The MVP should pass a storage key and user instructions, not raw file bytes. Local development should resolve the key against an ignored private upload path shared by the local web and agent processes.
+
+Live processing requires `OPENAI_API_KEY`. `OPENAI_MODEL` defaults to `gpt-4.1-mini`, `OPENAI_EMBEDDING_MODEL` defaults to `text-embedding-3-small`, and `QDRANT_COLLECTION` defaults to `revenue_brains_documents`. Automated tests should use deterministic mocked extraction/vector behavior and must not call live OpenAI or Qdrant.
 
 ## MVP Q&A Flow
 

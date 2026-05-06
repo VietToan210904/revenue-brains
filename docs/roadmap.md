@@ -43,7 +43,7 @@ Deferred from Phase 2:
 
 ## Phase 3: Chat Ingestion Pipeline
 
-Status: current implementation.
+Status: complete.
 
 Goals:
 
@@ -57,9 +57,11 @@ Goals:
 
 Done means an employee can attach a supported text-based file to a chat message, include instructions, and see an agent reply plus a tracked processing job.
 
-The current Phase 3 implementation uses a Python accepted stub for `/documents/process`. Jobs can reach `PROCESSING` with stage `agent_handoff_accepted` or `FAILED` with stage `agent_handoff_failed`; no extraction completion state is produced in this phase.
+The Phase 3 implementation used a Python accepted stub for `/documents/process`. It proved chat attachments, private upload storage, document/job rows, and the web-to-Python storage-key handoff.
 
 ## Phase 4: Classification And Extraction
+
+Status: complete.
 
 Goals:
 
@@ -68,35 +70,45 @@ Goals:
 - extract common fields
 - extract type-specific fields for revenue and finance documents
 - enforce required field contracts per document type
-- validate fields and confidence
+- let the agent assess validation, confidence, review status, and automation safety
 - preserve source references for important extracted values
 - save structured results into Postgres
 
 Done means chat-attached sample documents produce visible extracted records with confidence scores and agent chat replies.
 
-## Phase 5: Qdrant Ingestion And RAG
+The Phase 4 implementation parses TXT, Markdown, text-based PDF, and DOCX files; classifies documents; extracts structured fields; returns agent-owned validation/confidence assessment, review reasons, and source references; persists `ExtractedRecord`, `ExtractedField`, and `SourceReference` rows through Prisma; and updates chat/status UI with extraction status.
+
+## Phase 5: LangGraph Qdrant Ingestion And RAG
+
+Status: current implementation.
 
 Goals:
 
-- chunk document text
-- embed chunks and extracted facts
-- store vectors and metadata in Qdrant
-- link Qdrant vectors back to Postgres documents and records
-- implement basic semantic retrieval
+- refactor Python orchestration into LangGraph ingestion and Q&A graphs
+- use LangChain structured output for extraction
+- chunk parsed document text
+- embed chunks with OpenAI embeddings
+- store vectors and metadata in Qdrant through LangChain Qdrant integration
+- link Qdrant vectors back to Postgres documents and records with `VectorReference`
+- implement semantic retrieval and cited Q&A answers
 
-Done means chat-attached documents become searchable vector memory.
+Done means chat-attached documents become searchable vector memory, and employees can ask text-only chat questions that route to Postgres, Qdrant, or both.
+
+The current implementation keeps Python as the owner of Qdrant writes/retrieval and TypeScript as the owner of Postgres reads/writes.
 
 ## Phase 6: Hybrid Q&A
 
+Status: initial implementation included in Phase 5; future refinements remain.
+
 Goals:
 
-- support chat-only questions without attachments
-- route exact questions to TypeScript-owned Postgres reads when appropriate
-- route semantic questions to Python-owned Qdrant retrieval when appropriate
-- combine evidence into cited answers
-- show source references in chat and dashboard/status views
+- improve retrieval planning quality
+- add richer citation display and Q&A history views
+- expand exact Postgres evidence planning beyond the current recent-record evidence set
+- add better empty-memory and unavailable-Qdrant handling
+- add integration tests across the web app, Python service, Postgres, and Qdrant
 
-Done means employees can ask questions in chat and receive answers backed by structured records or document citations.
+Done means employees can reliably ask questions in chat and receive answers backed by structured records or document citations across larger workspaces.
 
 ## Phase 7: Webhook Sync
 

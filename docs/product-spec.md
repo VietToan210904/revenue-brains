@@ -39,7 +39,7 @@ The MVP should support:
 - document classification
 - common metadata extraction for all documents
 - type-specific extraction for revenue and finance documents
-- confidence scoring and validation
+- AI-native confidence, validation, and review assessment
 - structured record storage in Postgres
 - document chunk and extracted-fact ingestion into Qdrant
 - hybrid Q&A over Postgres and Qdrant
@@ -86,7 +86,7 @@ Known revenue and finance documents should also receive type-specific fields suc
 
 ## Document Field Contracts
 
-Every document type should include source references for important extracted values. Missing required fields should lower confidence and can move a result to `needs_review` or `failed` depending on severity.
+Every document type should include source references for important extracted values. The agent should decide whether missing or uncertain fields lower confidence, require review, or make the result unusable.
 
 | Document type | Required common fields | Required type-specific fields | Optional when present |
 | --- | --- | --- | --- |
@@ -150,15 +150,11 @@ Allowed job states should be explicit:
 
 Retry attempts should preserve the previous error, attempt count, timestamps, and last successful stage. Partial failures should remain visible in the dashboard and should not trigger external sync.
 
-## Confidence Gates
+## AI-Native Confidence Gates
 
-The first implementation should use simple operational thresholds:
+The first implementation should let the extraction agent decide confidence, validation status, review requirements, and automation safety. The agent should return an explicit assessment with document confidence, field confidence, review reasons, missing fields, uncertain fields, and whether the record is safe to save as extracted or should remain reviewable.
 
-- high confidence: score `>= 0.85`, required fields present, important fields supported by source references, and values pass validation
-- medium confidence: score `>= 0.60` and `< 0.85`, or minor validation gaps
-- low confidence: score `< 0.60`, unsupported values, missing critical fields, or severe validation failures
-
-High-confidence results may be marked trusted for sync once the generic webhook milestone exists. Medium- and low-confidence results should be saved internally for visibility and review, but they should not be externally synced.
+Code should validate the technical shape of that assessment, but it should not apply fixed business thresholds or cap unknown document confidence. Records marked reviewable by the agent should be saved internally for visibility and should not be externally synced.
 
 ## Success Criteria
 

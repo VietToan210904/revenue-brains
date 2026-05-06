@@ -2,19 +2,21 @@
 
 ## Summary
 
-Revenue Brains currently has the Phase 3 chat ingestion pipeline:
+Revenue Brains currently has the LangGraph agent and RAG pipeline:
 
 - Next.js chat workspace in `apps/web`.
-- Prisma schema and migration for Postgres-backed chat intake records.
-- Multipart chat intake APIs for messages, attachments, documents, and jobs.
+- Prisma schema and migrations for Postgres-backed chat intake records plus extracted records, extracted fields, source references, and Qdrant vector references.
+- Multipart chat intake APIs for messages, attachments, documents, jobs, and extraction persistence.
 - Python FastAPI agent service in `services/agent`.
-- Python `POST /documents/process` accepted stub for Phase 3 handoff.
+- Python LangGraph ingestion graph behind `POST /documents/process` for TXT, Markdown, text-based PDF, and DOCX files.
+- Python LangGraph Q&A graph behind `POST /qa/plan` and `POST /qa/answer`.
+- LangChain structured extraction, OpenAI embeddings, and Qdrant vector storage/retrieval.
 - DB-only Docker Compose infrastructure for local Postgres and Qdrant.
 - Ignored private local upload storage at `./uploads`.
 
 Phase 2 Docker Compose intentionally runs only Postgres and Qdrant. The web and agent services run locally with `npm` and `uv`. Web/agent Compose services are deferred to later full orchestration work.
 
-The current implementation proves chat ingestion and agent handoff only. Extraction, Qdrant ingestion, RAG answering, auth, webhook sync, and MCP tooling are not implemented yet.
+The current implementation proves chat ingestion through synchronous extraction, Postgres persistence, Qdrant vector ingestion, and basic hybrid Q&A. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, and connector ingestion are not implemented yet.
 
 ## Required Tooling
 
@@ -32,6 +34,8 @@ Template variables currently listed in `.env.example`:
 APP_ENV=development
 PYTHON_AGENT_URL=http://localhost:8000
 OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=revenue_brains
@@ -40,6 +44,8 @@ POSTGRES_PASSWORD=change-me-local-only
 DATABASE_URL=postgresql://revenue_brains:change-me-local-only@localhost:5432/revenue_brains
 QDRANT_URL=http://localhost:6333
 QDRANT_API_KEY=
+QDRANT_COLLECTION=revenue_brains_documents
+QDRANT_VECTOR_SIZE=1536
 QDRANT_HTTP_PORT=6333
 QDRANT_GRPC_PORT=6334
 UPLOAD_STORAGE_PATH=./uploads
@@ -74,10 +80,12 @@ npm run db:migrate
 Install Python agent dependencies from `services/agent`:
 
 ```bash
-uv sync
+python -m uv sync
 ```
 
 `services/agent/uv.lock` is tracked and should be updated when agent dependencies change.
+
+Live extraction and RAG use LangChain with OpenAI structured model calls and embeddings. Set `OPENAI_API_KEY` in your ignored local env file and optionally change `OPENAI_MODEL` or `OPENAI_EMBEDDING_MODEL`; the documented defaults are `gpt-4.1-mini` and `text-embedding-3-small`. Automated Python tests use deterministic mocked extraction/vector behavior and do not call OpenAI or Qdrant.
 
 ## Running Services
 
@@ -90,7 +98,7 @@ npm run dev
 Start the Python agent service from `services/agent`:
 
 ```bash
-uv run uvicorn app.main:app --reload --port 8000
+python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 8000
 ```
 
 Start local data services from the repository root:
@@ -124,9 +132,9 @@ npm run build
 Python checks from `services/agent`:
 
 ```bash
-uv run pytest
-uv run ruff check
-uv run ruff format --check
+python -m uv run pytest
+python -m uv run ruff check
+python -m uv run ruff format --check
 ```
 
 Infrastructure checks from the repository root:
@@ -155,7 +163,7 @@ The current `docker-compose.yml` defines only:
 - `postgres`
 - `qdrant`
 
-It remains DB-only in Phase 3. Do not add `web` or `agent` Compose services until a later full local orchestration milestone.
+It remains DB-only in the current local workflow. Do not add `web` or `agent` Compose services until a later full local orchestration milestone.
 
 `UPLOAD_STORAGE_PATH=./uploads` establishes the local private storage path. The web app writes attachments there and sends storage keys to the local Python process.
 
@@ -168,25 +176,24 @@ Implemented:
 - Chat message endpoint at `POST /api/chat/messages`.
 - Conversation read endpoint at `GET /api/chat/:conversationId`.
 - Processing job read endpoint at `GET /api/jobs/:jobId`.
-- Prisma schema and migration for workspace, conversation, message, document, and processing job records.
+- Prisma schema and migrations for workspace, conversation, message, document, processing job, extracted record, extracted field, and source reference records.
 - FastAPI app scaffold.
 - Agent health endpoint at `GET /health`.
-- Accepted-stub document handoff endpoint at `POST /documents/process`.
-- Placeholder Q&A contracts.
-- Python tests for the agent health, accepted document handoff, and placeholder Q&A routes.
+- LangGraph document processing endpoint at `POST /documents/process` with parsing, classification, extraction, AI-native agent assessment, chunking, Qdrant vector ingestion, vector references, confidence, and structured errors.
+- LangGraph Q&A endpoints at `POST /qa/plan` and `POST /qa/answer`.
+- Python tests for agent health, parsing, classification, extraction validation, vector-reference behavior, structured document errors, and Q&A route contracts.
 - Local Postgres and Qdrant Compose infrastructure.
 - Environment template aligned with local ports.
 
 Not implemented yet:
 
-- Actual document parsing, classification, extraction, validation, embeddings, Qdrant ingestion, or answer generation.
 - Web/agent Compose containers.
 - Auth, webhook sync, MCP server, OCR, CSV/XLSX extraction, connector imports, or production deployment.
 
 ## Local Development Assumptions
 
 - Development starts locally before cloud deployment.
-- Docker Compose is used for local data services only in Phase 3.
+- Docker Compose is used for local data services only in the current local workflow.
 - Original chat attachments are private and live in ignored local storage.
 - Sample fixtures must be synthetic and safe to commit.
 - Real company documents must not be committed.

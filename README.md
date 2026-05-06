@@ -60,21 +60,17 @@ For the MVP, TypeScript should hand Python a storage key rather than raw file by
 Revenue Brains is planned as a monorepo with a clear TypeScript/Python split:
 
 - **TypeScript / Next.js app:** owns agent chat UI, chat message and attachment APIs, file storage handoff, dashboard/status views, auth, workspace behavior, Postgres writes through Prisma, processing job status, webhook sync, and user-facing Q&A routes.
-- **Python / FastAPI agent service:** owns parsing, classification, extraction, validation, confidence scoring, embeddings, Qdrant ingestion, retrieval planning, and answer generation.
+- **Python / FastAPI agent service:** owns parsing, classification, extraction, AI-native validation/confidence assessment, embeddings, Qdrant ingestion, retrieval planning, and answer generation.
 
-The boundary should be documented HTTP APIs, not duplicated logic. The TypeScript app should send processing requests containing conversation ID, message ID, document ID, workspace ID, file storage key, checksum, filename, content type, user instructions, and processing options. The Python service should return typed extraction results, validation details, confidence scores, source references, Qdrant vector IDs, chat reply content, and structured errors.
+The boundary should be documented HTTP APIs, not duplicated logic. The TypeScript app should send processing requests containing conversation ID, message ID, document ID, workspace ID, file storage key, checksum, filename, content type, user instructions, and processing options. The Python service should return typed extraction results, agent assessment decisions, validation details, confidence scores, source references, Qdrant vector IDs, chat reply content, and structured errors.
 
 Postgres reads and writes should be owned by the TypeScript app through Prisma. Python should not connect directly to Postgres in the MVP; for Q&A it should receive structured Postgres evidence from TypeScript or return a typed retrieval plan for TypeScript to execute. Qdrant reads and writes should be owned by the Python agent service, with vector references returned to the TypeScript app so they can be linked back to Postgres records and jobs.
 
-## Confidence And Review Rules
+## AI-Native Confidence And Review
 
-Confidence should be operational, not just decorative. The initial thresholds are:
+Confidence should be operational, not just decorative. The ingestion agent decides document confidence, field confidence, validation status, review requirements, and automation safety in an `agentAssessment` payload. Code validates the response shape and safe storage contract, but it does not cap confidence or apply business thresholds such as forcing unknown documents into review.
 
-- **High confidence:** score `>= 0.85`, required fields present, values pass validation, and important fields have source references. These results are saved and may be marked trusted for sync.
-- **Medium confidence:** score `>= 0.60` and `< 0.85`, or minor validation gaps. These results are saved internally and shown for review, but they are not externally synced.
-- **Low confidence:** score `< 0.60`, missing required evidence, unsupported extracted values, or severe validation failures. These results are saved with warnings or failed status and are not externally synced.
-
-Field-level confidence should be stored alongside document-level confidence. A single critical field with poor evidence should be able to block external sync even if the overall document score is acceptable.
+Field-level confidence should be stored alongside document-level confidence. When the agent flags review reasons, missing fields, or uncertain fields, those reasons should remain visible in the chat/status workspace and should block future external sync until the record is trusted.
 
 ## Hybrid Q&A Rules
 
@@ -98,6 +94,7 @@ The TypeScript app should own webhook configuration, delivery attempts, retry st
 
 - **Dashboard and product backend:** Next.js, React, TypeScript
 - **Agent and RAG service:** Python, FastAPI, uv
+- **Agent framework:** LangGraph for controlled agent workflows, LangChain for structured model calls, embeddings, and Qdrant integration
 - **Future agent tool layer:** TypeScript/Node MCP server for controlled agent tools after the core MVP is working
 - **Structured database:** Postgres
 - **Vector database:** Qdrant
@@ -124,9 +121,11 @@ Postgres and Qdrant have different jobs. Postgres is the source of truth for exa
 
 ## Repository Status
 
-This repository currently contains the Phase 3 chat ingestion pipeline. It includes a Next.js chat workspace, Prisma schema and migration for Postgres-backed conversations/messages/documents/jobs, multipart chat intake APIs, private local attachment storage, a Python FastAPI accepted-stub document endpoint, DB-only Docker Compose configuration for local Postgres and Qdrant, and baseline web and Python verification commands.
+This repository currently contains the LangGraph agent and RAG milestone. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, and a Python FastAPI agent service.
 
-It does not yet contain real document parsing, classification, extraction, embeddings, Qdrant ingestion, RAG answering, auth, webhook sync, MCP tooling, connector imports, or production workflows.
+The Python service now uses LangGraph for ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by the agent, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Text-only chat questions route through a Q&A planner that can use Postgres evidence, Qdrant retrieval, or both.
+
+It does not yet contain auth, webhook sync, MCP tooling, connector imports, OCR, CSV/XLSX extraction, or production workflows.
 
 Planned top-level structure:
 
@@ -212,16 +211,18 @@ npm run db:studio
 Run the Python agent service from `services/agent`:
 
 ```bash
-uv sync
-uv run uvicorn app.main:app --reload --port 8000
+python -m uv sync
+python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 8000
 ```
+
+Live extraction and RAG require `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, `QDRANT_URL`, and `QDRANT_COLLECTION` from `.env`. If a key was exposed in terminal/chat output, rotate it in the OpenAI dashboard and replace the local `.env` value. Automated Python tests use deterministic mocked model/vector behavior and do not call OpenAI or Qdrant.
 
 Verify the Python agent service from `services/agent`:
 
 ```bash
-uv run pytest
-uv run ruff check
-uv run ruff format --check
+python -m uv run pytest
+python -m uv run ruff check
+python -m uv run ruff format --check
 ```
 
 Web and agent Docker Compose services are intentionally deferred to later full orchestration work. Phase 2 Compose runs Postgres and Qdrant only.
