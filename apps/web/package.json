@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint .",
-    "test": "npm run lint",
+    "test": "vitest run && npm run lint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev --name langgraph_rag_vector_references",
     "db:studio": "prisma studio"
@@ -28,6 +28,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.4",
     "prisma": "^7.8.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
   }
 }
