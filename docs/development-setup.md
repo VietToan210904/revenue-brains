@@ -2,12 +2,15 @@
 
 ## Summary
 
-Revenue Brains currently has the LangGraph agent and RAG pipeline:
+Revenue Brains currently has the autonomous LangGraph multi-agent team plus the RAG pipeline:
 
 - Next.js chat workspace in `apps/web`.
 - Prisma schema and migrations for Postgres-backed chat intake records plus extracted records, extracted fields, source references, and Qdrant vector references.
 - Multipart chat intake APIs for messages, attachments, documents, jobs, and extraction persistence.
 - Python FastAPI agent service in `services/agent`.
+- Python LangGraph autonomous run endpoint at `POST /agent/runs/start` for async Manager/Intake/Extraction/Critic/Memory/Q&A/Response work.
+- Compatibility Python LangGraph supervisor endpoint at `POST /agent/respond`.
+- Internal TypeScript callback endpoints for agent run events, completion, and failure.
 - Python LangGraph ingestion graph behind `POST /documents/process` for TXT, Markdown, text-based PDF, and DOCX files.
 - Python LangGraph Q&A graph behind `POST /qa/plan` and `POST /qa/answer`.
 - LangChain structured extraction, OpenAI embeddings, and Qdrant vector storage/retrieval.
@@ -17,7 +20,7 @@ Revenue Brains currently has the LangGraph agent and RAG pipeline:
 
 Phase 2 Docker Compose intentionally runs only Postgres and Qdrant. The web and agent services run locally with `npm` and `uv`. Web/agent Compose services are deferred to later full orchestration work.
 
-The current implementation proves chat ingestion through synchronous extraction, Postgres persistence, Qdrant vector ingestion, and basic hybrid Q&A. It is a local MVP prototype, not production software. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, tenant isolation, production deployment, and connector ingestion are not implemented yet.
+The current implementation proves chat ingestion through async autonomous agent runs, Postgres persistence, Qdrant vector ingestion, and basic hybrid Q&A. It is a local MVP prototype, not production software. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, tenant isolation, production deployment, and connector ingestion are not implemented yet.
 
 ## Required Tooling
 
@@ -34,6 +37,8 @@ Template variables currently listed in `.env.example`:
 ```txt
 APP_ENV=development
 PYTHON_AGENT_URL=http://localhost:8000
+AGENT_CALLBACK_BASE_URL=http://localhost:3000
+AGENT_CALLBACK_SECRET=change-me-agent-callback-secret
 OPENAI_API_KEY=
 OPENAI_MODEL=gpt-4.1-mini
 OPENAI_EMBEDDING_MODEL=text-embedding-3-small
@@ -86,7 +91,7 @@ python -m uv sync
 
 `services/agent/uv.lock` is tracked and should be updated when agent dependencies change.
 
-Live extraction and RAG use LangChain with OpenAI structured model calls and embeddings. Set `OPENAI_API_KEY` in your ignored local env file and optionally change `OPENAI_MODEL` or `OPENAI_EMBEDDING_MODEL`; the documented defaults are `gpt-4.1-mini` and `text-embedding-3-small`. Automated Python tests use deterministic mocked extraction/vector behavior and do not call OpenAI or Qdrant.
+Live extraction and RAG use LangChain with OpenAI structured model calls and embeddings. Set `OPENAI_API_KEY` in your ignored local env file and optionally change `OPENAI_MODEL` or `OPENAI_EMBEDDING_MODEL`; the documented defaults are `gpt-4.1-mini` and `text-embedding-3-small`. Async agent runs also need `AGENT_CALLBACK_BASE_URL` and `AGENT_CALLBACK_SECRET` so Python can call back into the local TypeScript app. Automated Python tests use deterministic mocked extraction/vector behavior and do not call OpenAI or Qdrant.
 
 ## Running Services
 
@@ -182,6 +187,10 @@ Implemented:
 - Prisma schema and migrations for workspace, conversation, message, document, processing job, extracted record, extracted field, and source reference records.
 - FastAPI app scaffold.
 - Agent health endpoint at `GET /health`.
+- LangGraph autonomous team endpoint at `POST /agent/runs/start` that accepts async runs.
+- TypeScript callback endpoints for agent run events, completion, and failure.
+- Public run timeline endpoint at `GET /api/agent-runs/:runId`.
+- Compatibility LangGraph supervisor endpoint at `POST /agent/respond` that chooses document ingestion, Q&A, both, clarification, or unsupported response.
 - LangGraph document processing endpoint at `POST /documents/process` with parsing, classification, extraction, AI-native agent assessment, chunking, Qdrant vector ingestion, vector references, confidence, and structured errors.
 - LangGraph Q&A endpoints at `POST /qa/plan` and `POST /qa/answer`.
 - Practical Q&A citations in the chat workspace with source type, title or source ID, snippet, confidence, retrieval mode, and limitations where available.

@@ -1,17 +1,12 @@
-import {
-  DocumentStatus,
-  MessageRole,
-  Prisma,
-  ProcessingJobStatus
-} from "@/generated/prisma/client";
+import { AgentRunStatus, DocumentStatus, MessageRole, ProcessingJobStatus } from "@/generated/prisma/client";
 import { isUploadFile, jsonError, readOptionalString } from "@/lib/api";
-import { prisma } from "@/lib/db";
 import {
-  markExtractionFailed,
-  persistExtractionResult,
-  type PersistedExtraction,
-  type PythonExtractionPayload
-} from "@/lib/extraction-persistence";
+  failAgentRun,
+  jsonValue,
+  type AgentRunAttachmentPayload,
+  type AgentRunStartAcceptedPayload
+} from "@/lib/agent-run-persistence";
+import { prisma } from "@/lib/db";
 import { loadLocalEnv } from "@/lib/local-env";
 import { storeChatAttachment } from "@/lib/uploads";
 import { getDefaultWorkspace } from "@/lib/workspace";
@@ -22,6 +17,7 @@ export const dynamic = "force-dynamic";
 loadLocalEnv();
 
 const pythonAgentUrl = process.env.PYTHON_AGENT_URL ?? "http://localhost:8000";
+const callbackBaseUrl = process.env.AGENT_CALLBACK_BASE_URL ?? "http://localhost:3000";
 
 function isDatabaseSetupError(error: unknown) {
   const code =
@@ -46,66 +42,6 @@ function titleFromMessage(content: string | null, fileCount: number) {
   return fileCount === 1 ? "Document intake" : "Document intake thread";
 }
 
-async function callPythonProcessor(input: {
-  conversationId: string;
-  messageId: string;
-  documentId: string;
-  workspaceId: string;
-  fileStorageKey: string;
-  checksum: string;
-  originalFilename: string;
-  contentType: string;
-  userInstructions: string | null;
-}) {
-  const endpoint = `${pythonAgentUrl.replace(/\/$/, "")}/documents/process`;
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      conversationId: input.conversationId,
-      messageId: input.messageId,
-      documentId: input.documentId,
-      workspaceId: input.workspaceId,
-      fileStorageKey: input.fileStorageKey,
-      checksum: input.checksum,
-      originalFilename: input.originalFilename,
-      contentType: input.contentType,
-      userInstructions: input.userInstructions
-    }),
-    signal: AbortSignal.timeout(75_000)
-  });
-
-  const responseText = await response.text();
-  const body = responseText ? parseJson(responseText) : null;
-  const publicEndpoint = "/documents/process";
-
-  if (!response.ok || !isExtractionPayload(body)) {
-    const errorBody =
-      typeof body === "object" && body !== null
-        ? (body as { message?: string; error?: string })
-        : null;
-    return {
-      endpoint: publicEndpoint,
-      ok: false as const,
-      statusCode: response.status,
-      message:
-        errorBody?.message ??
-        errorBody?.error ??
-        `Python agent returned HTTP ${response.status}.`
-    };
-  }
-
-  return {
-    endpoint: publicEndpoint,
-    ok: true as const,
-    statusCode: response.status,
-    payload: body
-  };
-}
-
 function parseJson(responseText: string): unknown {
   try {
     return JSON.parse(responseText) as unknown;
@@ -114,137 +50,28 @@ function parseJson(responseText: string): unknown {
   }
 }
 
-function isExtractionPayload(value: unknown): value is PythonExtractionPayload {
+function isRunAcceptedPayload(value: unknown): value is AgentRunStartAcceptedPayload {
   if (typeof value !== "object" || value === null) {
     return false;
   }
-
-  const candidate = value as Partial<PythonExtractionPayload>;
+  const candidate = value as Partial<AgentRunStartAcceptedPayload>;
   return (
-    (candidate.status === "extracted" || candidate.status === "needs_review") &&
-    typeof candidate.documentId === "string" &&
-    typeof candidate.documentType === "string" &&
-    typeof candidate.title === "string" &&
-    Array.isArray(candidate.commonFields) &&
-    Array.isArray(candidate.typeSpecificFields) &&
-    typeof candidate.summary === "string" &&
-    typeof candidate.documentConfidence === "number" &&
-    typeof candidate.agentAssessment === "object" &&
-    candidate.agentAssessment !== null &&
-    (candidate.agentAssessment.status === "extracted" ||
-      candidate.agentAssessment.status === "needs_review") &&
-    typeof candidate.agentAssessment.documentConfidence === "number" &&
-    Array.isArray(candidate.vectorReferences) &&
-    typeof candidate.chatReply === "string" &&
-    candidate.processingImplemented === true
+    candidate.status === "accepted" &&
+    typeof candidate.agentRunId === "string" &&
+    typeof candidate.message === "string"
   );
 }
 
-type IntakeResult = {
-  document: PersistedExtraction["document"];
-  job: PersistedExtraction["job"];
-  extractedRecord?: PersistedExtraction["extractedRecord"];
-  extraction?: PythonExtractionPayload;
-  errorMessage?: string;
-};
-
-type RetrievalMode = "postgres" | "qdrant" | "hybrid";
-
-type QaPlanPayload = {
-  status: "planned";
-  retrievalMode: RetrievalMode;
-  postgresQuery: Record<string, unknown>;
-  qdrantQuery: string;
-  reasoning: string;
-};
-
-type QaAnswerPayload = {
-  status: "answered";
-  answer: string;
-  retrievalMode: RetrievalMode;
-  citations: Array<{
-    sourceType: "postgres" | "qdrant";
-    documentId?: string | null;
-    recordId?: string | null;
-    qdrantPointId?: string | null;
-    title?: string | null;
-    snippet?: string | null;
-  }>;
-  confidence: number;
-  limitations: string[];
-};
-
-async function callQaPlan(input: {
-  workspaceId: string;
-  conversationId: string;
-  question: string;
-}): Promise<QaPlanPayload> {
-  const endpoint = `${pythonAgentUrl.replace(/\/$/, "")}/qa/plan`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      workspaceId: input.workspaceId,
-      conversationId: input.conversationId,
-      question: input.question,
-      filters: {}
-    }),
-    signal: AbortSignal.timeout(75_000)
-  });
-  const responseText = await response.text();
-  const body = responseText ? parseJson(responseText) : null;
-
-  if (!response.ok || !isQaPlanPayload(body)) {
-    throw new Error(readAgentError(body, response.status));
+function readAgentError(body: unknown, statusCode: number) {
+  if (typeof body === "object" && body !== null) {
+    const candidate = body as { message?: string; error?: string };
+    return candidate.message ?? candidate.error ?? `Python agent returned HTTP ${statusCode}.`;
   }
 
-  return body;
+  return `Python agent returned HTTP ${statusCode}.`;
 }
 
-async function callQaAnswer(input: {
-  workspaceId: string;
-  conversationId: string;
-  question: string;
-  retrievalMode: RetrievalMode;
-  postgresEvidence: Array<Record<string, unknown>>;
-}): Promise<QaAnswerPayload> {
-  const endpoint = `${pythonAgentUrl.replace(/\/$/, "")}/qa/answer`;
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json"
-    },
-    body: JSON.stringify({
-      workspaceId: input.workspaceId,
-      conversationId: input.conversationId,
-      question: input.question,
-      retrievalMode: input.retrievalMode,
-      postgresEvidence: input.postgresEvidence,
-      qdrantContext: []
-    }),
-    signal: AbortSignal.timeout(75_000)
-  });
-  const responseText = await response.text();
-  const body = responseText ? parseJson(responseText) : null;
-
-  if (!response.ok || !isQaAnswerPayload(body)) {
-    throw new Error(readAgentError(body, response.status));
-  }
-
-  return body;
-}
-
-async function getPostgresEvidence(input: {
-  workspaceId: string;
-  conversationId: string;
-  retrievalMode: RetrievalMode;
-}) {
-  if (input.retrievalMode === "qdrant") {
-    return [];
-  }
-
+async function getRecentPostgresEvidence(input: { workspaceId: string }) {
   const records = await prisma.extractedRecord.findMany({
     where: {
       workspaceId: input.workspaceId
@@ -317,70 +144,44 @@ async function getPostgresEvidence(input: {
   }));
 }
 
-async function answerChatQuestion(input: {
+async function callAutonomousRunStart(input: {
+  agentRunId: string;
   workspaceId: string;
   conversationId: string;
-  question: string;
+  messageId: string;
+  userMessage: string;
+  userInstructions: string | null;
+  attachments: AgentRunAttachmentPayload[];
+  postgresEvidence: Array<Record<string, unknown>>;
 }) {
-  const plan = await callQaPlan(input);
-  const postgresEvidence = await getPostgresEvidence({
-    workspaceId: input.workspaceId,
-    conversationId: input.conversationId,
-    retrievalMode: plan.retrievalMode
+  const endpoint = `${pythonAgentUrl.replace(/\/$/, "")}/agent/runs/start`;
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      agentRunId: input.agentRunId,
+      workspaceId: input.workspaceId,
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+      userMessage: input.userMessage,
+      userInstructions: input.userInstructions,
+      attachments: input.attachments,
+      postgresEvidence: input.postgresEvidence,
+      callbackBaseUrl,
+      processingOptions: {}
+    }),
+    signal: AbortSignal.timeout(15_000)
   });
-  const answer = await callQaAnswer({
-    workspaceId: input.workspaceId,
-    conversationId: input.conversationId,
-    question: input.question,
-    retrievalMode: plan.retrievalMode,
-    postgresEvidence
-  });
+  const responseText = await response.text();
+  const body = responseText ? parseJson(responseText) : null;
 
-  return { plan, answer, postgresEvidenceCount: postgresEvidence.length };
-}
-
-function isQaPlanPayload(value: unknown): value is QaPlanPayload {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<QaPlanPayload>;
-  return (
-    candidate.status === "planned" &&
-    (candidate.retrievalMode === "postgres" ||
-      candidate.retrievalMode === "qdrant" ||
-      candidate.retrievalMode === "hybrid") &&
-    typeof candidate.qdrantQuery === "string" &&
-    typeof candidate.reasoning === "string"
-  );
-}
-
-function isQaAnswerPayload(value: unknown): value is QaAnswerPayload {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as Partial<QaAnswerPayload>;
-  return (
-    candidate.status === "answered" &&
-    typeof candidate.answer === "string" &&
-    (candidate.retrievalMode === "postgres" ||
-      candidate.retrievalMode === "qdrant" ||
-      candidate.retrievalMode === "hybrid") &&
-    Array.isArray(candidate.citations) &&
-    typeof candidate.confidence === "number"
-  );
-}
-
-function readAgentError(body: unknown, statusCode: number) {
-  if (typeof body === "object" && body !== null) {
-    const candidate = body as { message?: string; error?: string };
-    return candidate.message ?? candidate.error ?? `Python agent returned HTTP ${statusCode}.`;
+  if (!response.ok || !isRunAcceptedPayload(body)) {
+    throw new Error(readAgentError(body, response.status));
   }
 
-  return `Python agent returned HTTP ${statusCode}.`;
-}
-
-function toJsonValue(value: unknown): Prisma.InputJsonValue {
-  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+  return body;
 }
 
 export async function POST(request: Request) {
@@ -396,7 +197,6 @@ export async function POST(request: Request) {
     }
 
     const workspace = await getDefaultWorkspace();
-
     const conversation = requestedConversationId
       ? await prisma.conversation.findFirst({
           where: {
@@ -427,65 +227,46 @@ export async function POST(request: Request) {
         }
       }
     });
-
-    if (files.length === 0 && content) {
-      let assistantContent: string;
-      let metadata: Record<string, unknown>;
-
-      try {
-        const qa = await answerChatQuestion({
-          workspaceId: workspace.id,
-          conversationId: conversation.id,
-          question: content
-        });
-        assistantContent = qa.answer.answer;
-        metadata = {
-          qa: true,
-          retrievalMode: qa.answer.retrievalMode,
-          confidence: qa.answer.confidence,
-          citations: qa.answer.citations,
-          limitations: qa.answer.limitations,
-          plan: qa.plan,
-          postgresEvidenceCount: qa.postgresEvidenceCount
-        };
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "The Q&A agent could not answer right now.";
-        assistantContent = `I could not answer from company memory yet: ${message}`;
-        metadata = {
-          qa: true,
-          failed: true,
-          errorMessage: message
-        };
+    const assistantMessage = await prisma.chatMessage.create({
+      data: {
+        workspaceId: workspace.id,
+        conversationId: conversation.id,
+        role: MessageRole.ASSISTANT,
+        content:
+          "The autonomous document team is working on this. I will update this message when the run finishes.",
+        metadata: jsonValue({
+          agent: true,
+          pending: true,
+          intent: "agent_run",
+          automationDecision: "in_progress",
+          toolActions: [
+            {
+              tool: "manager_agent",
+              status: "running",
+              summary: "Autonomous run accepted by the web app."
+            }
+          ]
+        })
       }
+    });
+    const agentRun = await prisma.agentRun.create({
+      data: {
+        workspaceId: workspace.id,
+        conversationId: conversation.id,
+        userMessageId: userMessage.id,
+        assistantMessageId: assistantMessage.id,
+        status: AgentRunStatus.PENDING,
+        goal: userMessage.content,
+        metadata: jsonValue({
+          userInstructions,
+          attachmentCount: files.length
+        })
+      }
+    });
 
-      const assistantMessage = await prisma.chatMessage.create({
-        data: {
-          workspaceId: workspace.id,
-          conversationId: conversation.id,
-          role: MessageRole.ASSISTANT,
-          content: assistantContent,
-          metadata: toJsonValue(metadata)
-        }
-      });
-
-      return Response.json(
-        {
-          conversation,
-          userMessage,
-          assistantMessage,
-          documents: [],
-          jobs: [],
-          extractedRecords: []
-        },
-        {
-          status: 201
-        }
-      );
-    }
-
-    const intakeResults: IntakeResult[] = [];
-
+    const attachments: AgentRunAttachmentPayload[] = [];
+    const documents = [];
+    const jobs = [];
     for (const file of files) {
       const storedUpload = await storeChatAttachment(file);
       const document = await prisma.document.create({
@@ -508,109 +289,91 @@ export async function POST(request: Request) {
           conversationId: conversation.id,
           documentId: document.id,
           status: ProcessingJobStatus.QUEUED,
-          stage: "queued"
+          stage: "agent_run_queued"
         }
       });
 
-      try {
-        const handoff = await callPythonProcessor({
-          conversationId: conversation.id,
-          messageId: userMessage.id,
-          documentId: document.id,
-          workspaceId: workspace.id,
-          fileStorageKey: document.storageKey,
-          checksum: document.checksum,
-          originalFilename: document.originalFilename,
-          contentType: document.contentType,
-          userInstructions
-        });
-
-        if (!handoff.ok) {
-          const failure = await markExtractionFailed({
-            documentId: document.id,
-            jobId: job.id,
-            agentEndpoint: handoff.endpoint,
-            agentStatusCode: handoff.statusCode,
-            errorMessage: handoff.message
-          });
-
-          intakeResults.push({
-            ...failure,
-            errorMessage: handoff.message
-          });
-          continue;
-        }
-
-        const persisted = await persistExtractionResult({
-          workspaceId: workspace.id,
-          conversationId: conversation.id,
-          documentId: document.id,
-          jobId: job.id,
-          agentEndpoint: handoff.endpoint,
-          agentStatusCode: handoff.statusCode,
-          extraction: handoff.payload
-        });
-
-        intakeResults.push({
-          ...persisted,
-          extraction: handoff.payload
-        });
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "Python extraction failed unexpectedly.";
-        const failure = await markExtractionFailed({
-          documentId: document.id,
-          jobId: job.id,
-          agentEndpoint: "/documents/process",
-          errorMessage: message
-        });
-
-        intakeResults.push({
-          ...failure,
-          errorMessage: message
-        });
-      }
+      documents.push(document);
+      jobs.push(job);
+      attachments.push({
+        documentId: document.id,
+        fileStorageKey: document.storageKey,
+        checksum: document.checksum,
+        originalFilename: document.originalFilename,
+        contentType: document.contentType
+      });
     }
+    let responseJobs = jobs;
 
-    const extractedCount = intakeResults.filter(
-      (result) => result.extraction?.agentAssessment.status === "extracted"
-    ).length;
-    const reviewCount = intakeResults.filter(
-      (result) => result.extraction?.agentAssessment.status === "needs_review"
-    ).length;
-    const failedCount = intakeResults.filter((result) => result.errorMessage).length;
-    const extractionReplies = intakeResults
-      .map((result) =>
-        result.extraction
-          ? result.extraction.chatReply
-          : `Extraction failed for ${result.document.originalFilename}: ${result.errorMessage}`
-      )
-      .join("\n\n");
-    const assistantContent =
-      files.length === 0
-        ? "Message saved. Attach a document in chat when you are ready to start processing."
-        : extractionReplies ||
-          `Processed ${files.length} attachment${files.length === 1 ? "" : "s"}.`;
-
-    const assistantMessage = await prisma.chatMessage.create({
-      data: {
+    try {
+      const postgresEvidence = await getRecentPostgresEvidence({ workspaceId: workspace.id });
+      await callAutonomousRunStart({
+        agentRunId: agentRun.id,
         workspaceId: workspace.id,
         conversationId: conversation.id,
-        role: MessageRole.ASSISTANT,
-        content: assistantContent,
-        metadata: {
-          extractedCount,
-          reviewCount,
-          failedCount,
-          processingImplemented: files.length > 0
+        messageId: userMessage.id,
+        userMessage: userMessage.content,
+        userInstructions,
+        attachments,
+        postgresEvidence
+      });
+      await prisma.agentRun.update({
+        where: { id: agentRun.id },
+        data: {
+          status: AgentRunStatus.RUNNING,
+          startedAt: new Date()
+        }
+      });
+      if (jobs.length > 0) {
+        const acceptedAt = new Date();
+        await prisma.processingJob.updateMany({
+          where: {
+            id: {
+              in: jobs.map((job) => job.id)
+            }
+          },
+          data: {
+            status: ProcessingJobStatus.PROCESSING,
+            stage: "agent_run_started",
+            acceptedAt
+          }
+        });
+        responseJobs = jobs.map((job) => ({
+          ...job,
+          status: ProcessingJobStatus.PROCESSING,
+          stage: "agent_run_started",
+          acceptedAt
+        }));
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "The autonomous agent run could not start.";
+      await failAgentRun(agentRun.id, {
+        errorMessage: message,
+        agentName: "Manager Agent"
+      });
+    }
+
+    const updatedRun = await prisma.agentRun.findUniqueOrThrow({
+      where: {
+        id: agentRun.id
+      },
+      include: {
+        steps: {
+          orderBy: {
+            sequence: "asc"
+          }
+        },
+        artifacts: {
+          orderBy: {
+            createdAt: "asc"
+          }
         }
       }
     });
-
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: {
-        title: conversation.title
+    const updatedAssistantMessage = await prisma.chatMessage.findUniqueOrThrow({
+      where: {
+        id: assistantMessage.id
       }
     });
 
@@ -618,15 +381,14 @@ export async function POST(request: Request) {
       {
         conversation,
         userMessage,
-        assistantMessage,
-        documents: intakeResults.map((result) => result.document),
-        jobs: intakeResults.map((result) => result.job),
-        extractedRecords: intakeResults.flatMap((result) =>
-          result.extractedRecord ? [result.extractedRecord] : []
-        )
+        assistantMessage: updatedAssistantMessage,
+        documents,
+        jobs: responseJobs,
+        extractedRecords: [],
+        agentRun: updatedRun
       },
       {
-        status: 201
+        status: 202
       }
     );
   } catch (error) {

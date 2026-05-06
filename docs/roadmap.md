@@ -80,7 +80,7 @@ The Phase 4 implementation parses TXT, Markdown, text-based PDF, and DOCX files;
 
 ## Phase 5: LangGraph Qdrant Ingestion And RAG
 
-Status: current stabilized local MVP implementation.
+Status: complete as the stabilized local workflow foundation.
 
 Goals:
 
@@ -98,11 +98,22 @@ The current implementation keeps Python as the owner of Qdrant writes/retrieval 
 
 This phase is still local MVP work. Auth, OCR, CSV/XLSX extraction, webhook sync, connector ingestion, MCP tooling, tenant isolation, and production deployment are deferred.
 
-## Phase 6: Hybrid Q&A
+## Phase 6: Agentic Supervisor And Tool-Based Automation
 
-Status: basic implementation included in Phase 5; future refinements remain.
+Status: complete as the compatibility supervisor layer.
 
 Goals:
+
+- add a Python LangGraph supervisor agent above the existing ingestion and Q&A graphs
+- route every chat request through a single supervisor endpoint
+- let the supervisor decide whether to process documents, answer questions, do both, ask for clarification, or return unsupported safely
+- expose controlled tool-action traces for the UI
+- keep TypeScript as the only owner of Postgres reads and writes
+- keep Python as the owner of agent reasoning, Qdrant writes/retrieval, and answer generation
+
+Done means the system is no longer only a fixed workflow branch in the web app. The Python supervisor coordinates the existing workflows as tools and returns the final chat reply, automation decision, tool actions, extractions, and Q&A answer when available.
+
+Deferred Phase 6 refinements now move into Phase 7+ stabilization:
 
 - improve retrieval planning quality
 - add audit-grade citation navigation and Q&A history views
@@ -110,9 +121,32 @@ Goals:
 - add better empty-memory and unavailable-Qdrant handling
 - add integration tests across the web app, Python service, Postgres, and Qdrant
 
-Done means employees can reliably ask questions in chat and receive answers backed by structured records or document citations across larger workspaces.
+## Phase 7: Autonomous Multi-Agent Document Team
 
-## Phase 7: Webhook Sync
+Status: current local MVP implementation.
+
+Goals:
+
+- add async `AgentRun`, `AgentStep`, and `AgentArtifact` persistence
+- start autonomous runs through Python `POST /agent/runs/start`
+- add internal TypeScript callback endpoints for progress, completion, and failure
+- build a Python LangGraph team with Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agents
+- keep ingestion and Q&A graphs as controlled tools used by the team
+- show a pending assistant message immediately and update a live agent activity timeline
+- keep TypeScript as the owner of Postgres writes and Python as the owner of agent reasoning and Qdrant access
+
+Done means employees experience a team of agents working asynchronously: the Manager plans, agents do their work, callbacks persist progress, and the UI can poll the run timeline until the final Response Agent reply appears.
+
+Deferred from Phase 7:
+
+- arbitrary external tools
+- shell access
+- connector sync
+- MCP tool layer
+- production queues/workers
+- auth, tenant isolation, OCR, CSV/XLSX, and webhook sync
+
+## Phase 8: Webhook Sync
 
 Goals:
 
@@ -123,7 +157,7 @@ Goals:
 
 Done means Revenue Brains can push trusted extracted data to another system without a vendor-specific integration.
 
-## Phase 8: Authentication And Privacy Hardening
+## Phase 9: Authentication And Privacy Hardening
 
 Goals:
 
@@ -135,7 +169,7 @@ Goals:
 
 Done means the MVP has route-level protection and stronger privacy controls for real internal testing. Basic private file handling, source references, and raw-content logging restrictions must already be enforced during chat ingestion and processing phases.
 
-## Phase 9: MCP Agent Tool Server
+## Phase 10: MCP Agent Tool Server
 
 Goals:
 

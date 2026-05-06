@@ -1,6 +1,6 @@
 # API Contracts
 
-This directory documents the HTTP boundary between the TypeScript web app and the Python agent service. The current implementation includes web health, chat ingestion, conversation/job reads, Python health, LangGraph document ingestion with extraction and Qdrant vector storage, and LangGraph Q&A planning/answer routes.
+This directory documents the HTTP boundary between the TypeScript web app and the Python agent service. The current implementation includes web health, chat ingestion, async autonomous agent runs, internal agent-run callbacks, conversation/job reads, Python health, a compatibility LangGraph supervisor endpoint, LangGraph document ingestion with extraction and Qdrant vector storage, and LangGraph Q&A planning/answer routes.
 
 ## Ownership
 
@@ -67,9 +67,23 @@ Fields:
 - `userInstructions`: optional processing instruction text.
 - `files`: zero or more attached files.
 
-The route creates or updates a conversation, stores the user chat message, saves attached files under ignored local upload storage, stores document metadata and processing jobs in Postgres, calls Python `POST /documents/process` once per document, saves returned extraction records/fields/source references/vector references through Prisma, updates status, and stores an assistant reply.
+The route creates or updates a conversation, stores the user chat message, saves attached files under ignored local upload storage, stores document metadata and processing jobs in Postgres, creates an `AgentRun`, creates a pending assistant message, gathers recent Postgres evidence, and calls Python `POST /agent/runs/start`.
 
-If the chat message has no attachments, the same route treats the message as a company-brain question. It calls Python `POST /qa/plan`, fetches TypeScript-owned Postgres evidence when requested, calls Python `POST /qa/answer`, and stores the answer as an assistant message.
+If the chat message has no attachments, the same route still starts an autonomous run. The Manager Agent can route the request to Q&A, ask for clarification, or return a safe unsupported response. The lower-level document, Q&A, and supervisor endpoints remain available for compatibility and testing.
+
+### `GET /api/agent-runs/:runId`
+
+Returns one async autonomous run with ordered steps, artifacts, the pending or final assistant message, related documents, jobs, and extracted records. The chat UI polls this endpoint to show the live multi-agent activity timeline.
+
+### Internal Agent Run Callback Endpoints
+
+Python calls these TypeScript endpoints during async autonomous runs:
+
+- `POST /api/internal/agent-runs/:runId/events`
+- `POST /api/internal/agent-runs/:runId/complete`
+- `POST /api/internal/agent-runs/:runId/fail`
+
+Callbacks must include `x-agent-callback-secret` matching `AGENT_CALLBACK_SECRET`. Payloads should contain safe summaries, structured extraction results, Q&A answers, vector references, artifacts, and status metadata. They must not include API keys, raw database credentials, raw full document text, or unrestricted model traces.
 
 ### `GET /api/chat/:conversationId`
 
@@ -93,6 +107,53 @@ Example response:
   "service": "agent"
 }
 ```
+
+### `POST /agent/runs/start`
+
+Current status: implemented as the Phase 7 async autonomous multi-agent endpoint. This is the primary endpoint used by the web chat route. It receives the user message, attachment metadata/storage keys, optional instructions, callback base URL, and recent TypeScript-owned Postgres evidence. It starts a background autonomous team run and immediately returns `202 Accepted`.
+
+Request shape:
+
+```json
+{
+  "agentRunId": "run_123",
+  "workspaceId": "workspace_123",
+  "conversationId": "conv_123",
+  "messageId": "msg_123",
+  "userMessage": "Please process this invoice and tell me the due date.",
+  "userInstructions": "Keep payment terms visible.",
+  "attachments": [
+    {
+      "documentId": "doc_123",
+      "fileStorageKey": "documents/invoice.md",
+      "checksum": "sha256:placeholder",
+      "originalFilename": "invoice.md",
+      "contentType": "text/markdown"
+    }
+  ],
+  "postgresEvidence": [],
+  "callbackBaseUrl": "http://localhost:3000",
+  "processingOptions": {}
+}
+```
+
+Accepted response shape:
+
+```json
+{
+  "status": "accepted",
+  "agentRunId": "run_123",
+  "message": "Autonomous agent run started."
+}
+```
+
+The autonomous team emits ordered callback events for the Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agents. Completion payloads include `intent`, `toolActions`, `extractions`, optional `qaAnswer`, `automationDecision`, `reply`, and safe artifacts. Failure payloads include a safe error message and optional agent name.
+
+### `POST /agent/respond`
+
+Current status: implemented as the Phase 6 LangGraph supervisor compatibility endpoint. It remains available for direct tests and backward compatibility, but the web chat route now uses `POST /agent/runs/start`.
+
+Allowed `intent` values are `ingest_documents`, `answer_question`, `ingest_and_answer`, `clarify`, and `unsupported`. Clarification responses use top-level `status: "needs_clarification"`. Unsupported MVP requests use `status: "unsupported"`. The endpoint should not expose secrets, raw database credentials, or raw document content in errors.
 
 ### `POST /documents/process`
 
@@ -298,33 +359,33 @@ The answer endpoint retrieves Qdrant context when the request mode is `qdrant` o
 
 Q&A citations are practical MVP citations. They should identify whether the evidence came from Postgres or Qdrant, include a document title or source ID when available, include a short snippet, and preserve enough IDs for follow-up audit. Full audit-grade navigation is deferred.
 
-## MVP Processing Request
+## MVP Autonomous Run And Processing Request
 
-The TypeScript app sends Python:
+The TypeScript app now sends normal chat work to Python through `POST /agent/runs/start` with:
 
+- `agentRunId`
 - `conversationId`
 - `messageId`
-- `documentId`
 - `workspaceId`
-- `fileStorageKey`
-- `checksum`
-- `originalFilename`
-- `contentType`
+- `userMessage`
 - `userInstructions`
+- `attachments` containing document IDs, storage keys, checksums, filenames, and content types
+- `postgresEvidence` containing recent TypeScript-owned exact records
+- `callbackBaseUrl`
 - optional `processingOptions`
 
-The MVP should pass a storage key and user instructions, not raw file bytes. Local development should resolve the key against an ignored private upload path shared by the local web and agent processes.
+The lower-level `POST /documents/process` endpoint still accepts one document ID and one storage key. The MVP should pass storage keys and user instructions, not raw file bytes. Local development should resolve the key against an ignored private upload path shared by the local web and agent processes.
 
 Live processing requires `OPENAI_API_KEY`. `OPENAI_MODEL` defaults to `gpt-4.1-mini`, `OPENAI_EMBEDDING_MODEL` defaults to `text-embedding-3-small`, and `QDRANT_COLLECTION` defaults to `revenue_brains_documents`. Automated tests should use deterministic mocked extraction/vector behavior and must not call live OpenAI or Qdrant.
 
 ## MVP Q&A Flow
 
-For semantic-only chat questions, TypeScript can call Python with the question, conversation context, and filters, and Python can retrieve from Qdrant and answer.
+For normal chat questions, TypeScript starts an autonomous run with the question, conversation context, and recent Postgres evidence. The Manager Agent can delegate to the Q&A Agent, which retrieves from Qdrant and answers.
 
 For exact-record or hybrid questions:
 
-1. TypeScript sends the question, conversation context, and filters to Python.
-2. Python returns a typed retrieval plan when exact Postgres evidence is needed.
-3. TypeScript executes the plan through Prisma.
-4. TypeScript sends structured evidence back to Python.
-5. Python combines structured evidence with Qdrant evidence when needed and returns the cited answer.
+1. TypeScript sends the question, conversation context, and recent structured evidence to the autonomous team.
+2. The Manager Agent decides whether Q&A is needed.
+3. The Q&A graph plans Postgres, Qdrant, or hybrid retrieval.
+4. Python combines TypeScript-supplied structured evidence with Qdrant evidence when needed.
+5. Python returns the cited answer through the autonomous run completion callback.

@@ -7,6 +7,14 @@ type ChatMessage = {
   role: "USER" | "ASSISTANT" | "SYSTEM";
   content: string;
   metadata?: {
+    agent?: boolean;
+    intent?: string;
+    automationDecision?: string;
+    toolActions?: Array<{
+      tool: string;
+      status: string;
+      summary: string;
+    }>;
     qa?: boolean;
     retrievalMode?: string;
     confidence?: number;
@@ -20,6 +28,8 @@ type ChatMessage = {
     }>;
     limitations?: string[];
     pending?: boolean;
+    agentRunId?: string;
+    agentRunStatus?: "PENDING" | "RUNNING" | "COMPLETED" | "NEEDS_REVIEW" | "FAILED";
   } | null;
   createdAt: string;
 };
@@ -108,6 +118,28 @@ type ExtractedRecord = {
   vectorReferences: VectorReference[];
 };
 
+type AgentStep = {
+  id: string;
+  sequence: number;
+  agentName: string;
+  action: string;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "SKIPPED";
+  inputSummary: string | null;
+  outputSummary: string | null;
+  confidence: number | null;
+  createdAt: string;
+};
+
+type AgentRunRecord = {
+  id: string;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "NEEDS_REVIEW" | "FAILED";
+  detectedIntent: string | null;
+  automationDecision: string | null;
+  finalReply: string | null;
+  errorMessage: string | null;
+  steps: AgentStep[];
+};
+
 type ChatResponse = {
   conversation: {
     id: string;
@@ -118,6 +150,15 @@ type ChatResponse = {
   documents: DocumentRecord[];
   jobs: ProcessingJob[];
   extractedRecords: ExtractedRecord[];
+  agentRun?: AgentRunRecord;
+};
+
+type AgentRunPollResponse = {
+  agentRun: AgentRunRecord;
+  assistantMessage: ChatMessage | null;
+  documents: DocumentRecord[];
+  jobs: ProcessingJob[];
+  extractedRecords: ExtractedRecord[];
 };
 
 const initialMessages: ChatMessage[] = [
@@ -125,7 +166,7 @@ const initialMessages: ChatMessage[] = [
     id: "welcome",
     role: "ASSISTANT",
     content:
-      "Send a message with company documents attached. Phase 5 extracts structured fields, stores vector memory, and answers questions from company context.",
+      "Send a message with company documents attached. Phase 7 uses an autonomous multi-agent team to plan, delegate, validate, remember, answer, and reply.",
     createdAt: new Date().toISOString()
   }
 ];
@@ -195,6 +236,47 @@ function hasFieldValue(field: ExtractedField) {
 
 function confidencePercent(value: number) {
   return `${Math.round(value * 100)}%`;
+}
+
+function delay(milliseconds: number) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+}
+
+function mergeById<T extends { id: string }>(incoming: T[], current: T[]) {
+  const merged = new Map<string, T>();
+  for (const item of current) {
+    merged.set(item.id, item);
+  }
+  for (const item of incoming) {
+    merged.set(item.id, item);
+  }
+  return Array.from(merged.values());
+}
+
+function withAgentRunTimeline(message: ChatMessage, agentRun: AgentRunRecord): ChatMessage {
+  return {
+    ...message,
+    metadata: {
+      ...(message.metadata ?? {}),
+      agent: true,
+      pending: agentRun.status === "PENDING" || agentRun.status === "RUNNING",
+      agentRunId: agentRun.id,
+      agentRunStatus: agentRun.status,
+      intent: message.metadata?.intent ?? agentRun.detectedIntent ?? undefined,
+      automationDecision:
+        message.metadata?.automationDecision ?? agentRun.automationDecision ?? undefined,
+      toolActions:
+        agentRun.steps.length > 0
+          ? agentRun.steps.map((step) => ({
+              tool: step.agentName,
+              status: step.status,
+              summary: step.outputSummary ?? step.inputSummary ?? step.action
+            }))
+          : message.metadata?.toolActions
+    }
+  };
 }
 
 export default function Home() {
@@ -273,6 +355,9 @@ export default function Home() {
       }
 
       const data = body as ChatResponse;
+      const assistantMessage = data.agentRun
+        ? withAgentRunTimeline(data.assistantMessage, data.agentRun)
+        : data.assistantMessage;
       setConversationId(data.conversation.id);
       setMessages((current) =>
         current.map((message) => {
@@ -280,7 +365,7 @@ export default function Home() {
             return data.userMessage;
           }
           if (message.id === thinkingMessage.id) {
-            return data.assistantMessage;
+            return assistantMessage;
           }
           return message;
         })
@@ -288,6 +373,9 @@ export default function Home() {
       setDocuments((current) => [...data.documents, ...current]);
       setJobs((current) => [...data.jobs, ...current]);
       setExtractedRecords((current) => [...data.extractedRecords, ...current]);
+      if (data.agentRun?.id) {
+        void pollAgentRun(data.agentRun.id);
+      }
     } catch (caughtError) {
       const message =
         caughtError instanceof Error ? caughtError.message : "Chat message could not be sent.";
@@ -307,6 +395,45 @@ export default function Home() {
       setError(message);
     } finally {
       setIsSending(false);
+    }
+  }
+
+  async function pollAgentRun(runId: string) {
+    for (let attempt = 0; attempt < 90; attempt += 1) {
+      await delay(attempt === 0 ? 500 : 1500);
+
+      try {
+        const response = await fetch(`/api/agent-runs/${runId}`);
+        const body = (await response.json()) as AgentRunPollResponse | { error?: string };
+
+        if (!response.ok || !("agentRun" in body)) {
+          continue;
+        }
+
+        const runBody = body as AgentRunPollResponse;
+        setMessages((current) =>
+          current.map((message) => {
+            if (
+              message.metadata?.agentRunId !== runBody.agentRun.id &&
+              message.id !== runBody.assistantMessage?.id
+            ) {
+              return message;
+            }
+
+            const baseMessage = runBody.assistantMessage ?? message;
+            return withAgentRunTimeline(baseMessage, runBody.agentRun);
+          })
+        );
+        setDocuments((current) => mergeById(runBody.documents, current));
+        setJobs((current) => mergeById(runBody.jobs, current));
+        setExtractedRecords((current) => mergeById(runBody.extractedRecords, current));
+
+        if (["COMPLETED", "NEEDS_REVIEW", "FAILED"].includes(runBody.agentRun.status)) {
+          return;
+        }
+      } catch {
+        continue;
+      }
     }
   }
 
@@ -354,7 +481,7 @@ export default function Home() {
             <p className="eyebrow">Agent chat</p>
             <h2 id="workspace-title">Company document intake</h2>
           </div>
-          <span className="status-pill">Phase 5</span>
+          <span className="status-pill">Phase 7</span>
         </header>
 
         <div className="message-stack" aria-label="Thread">
@@ -376,6 +503,29 @@ export default function Home() {
                   ) : null}
                   {typeof message.metadata.confidence === "number" ? (
                     <span>{confidencePercent(message.metadata.confidence)} confidence</span>
+                  ) : null}
+                </div>
+              ) : null}
+              {message.metadata?.agent ? (
+                <div className="agent-activity">
+                  <div className="agent-activity-pills">
+                    {message.metadata.intent ? (
+                      <span>{formatStatus(message.metadata.intent)}</span>
+                    ) : null}
+                    {message.metadata.automationDecision ? (
+                      <span>{formatStatus(message.metadata.automationDecision)}</span>
+                    ) : null}
+                  </div>
+                  {message.metadata.toolActions?.length ? (
+                    <ul>
+                      {message.metadata.toolActions.slice(0, 4).map((action, index) => (
+                        <li key={`${action.tool}-${index}`}>
+                          <strong>{formatStatus(action.tool)}</strong>
+                          <span>{formatStatus(action.status)}</span>
+                          <p>{shortenText(action.summary, 180)}</p>
+                        </li>
+                      ))}
+                    </ul>
                   ) : null}
                 </div>
               ) : null}

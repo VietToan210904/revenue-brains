@@ -6,7 +6,7 @@ from app.local_env import load_local_env
 def create_app() -> FastAPI:
     load_local_env()
 
-    from app.routers import documents, health, qa
+    from app.routers import agent, documents, health, qa
 
     app = FastAPI(
         title="Revenue Brains Agent Service",
@@ -15,6 +15,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(agent.router)
     app.include_router(documents.router)
     app.include_router(qa.router)
 

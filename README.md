@@ -34,16 +34,13 @@ The initial file formats are text-based PDFs, DOCX, plain text, and Markdown. OC
 
 1. An employee sends a chat message with one or more documents attached and optional instructions.
 2. The TypeScript app stores the chat message, original files, document metadata, and processing jobs.
-3. The TypeScript app calls the Python agent service over HTTP with document IDs, file storage keys, conversation/message IDs, and user instructions.
-4. The Python agent service parses the documents.
-5. The agent classifies each document type.
-6. The agent extracts common metadata and type-specific fields, guided by the employee's instructions.
-7. The agent validates the extraction, assigns confidence, and returns source references.
-8. The TypeScript app saves exact structured records into Postgres.
-9. The Python service embeds document chunks and extracted facts into Qdrant.
-10. The TypeScript app stores Qdrant vector references and processing status in Postgres.
-11. The agent replies in chat with status, summary, confidence, and links to records/job details.
-12. Employees can continue asking questions in the same chat using a hybrid Q&A agent.
+3. The TypeScript app creates an async `AgentRun`, a pending assistant message, and calls the Python autonomous team with storage keys, attachment metadata, recent Postgres evidence, callback details, and user instructions.
+4. The Manager Agent plans the run and delegates work to the Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agents.
+5. Python emits progress events back to TypeScript callback endpoints, and TypeScript persists each step for the activity timeline.
+6. When document processing is needed, the ingestion graph parses the documents, classifies each document type, extracts structured fields, validates evidence, and stores vector memory in Qdrant.
+7. The Validation/Critic Agent decides whether the output is safe to save automatically or needs review.
+8. The TypeScript app saves exact structured records, Qdrant vector references, run artifacts, processing status, and the final assistant reply into Postgres.
+9. Employees can continue asking questions in the same chat, and the multi-agent team can use Postgres evidence, Qdrant memory, or both.
 
 Low-confidence results are still saved internally for visibility and review, but external sync is blocked until the result is trusted.
 
@@ -60,7 +57,7 @@ For the MVP, TypeScript should hand Python a storage key rather than raw file by
 Revenue Brains is planned as a monorepo with a clear TypeScript/Python split:
 
 - **TypeScript / Next.js app:** owns agent chat UI, chat message and attachment APIs, file storage handoff, dashboard/status views, auth, workspace behavior, Postgres writes through Prisma, processing job status, webhook sync, and user-facing Q&A routes.
-- **Python / FastAPI agent service:** owns parsing, classification, extraction, AI-native validation/confidence assessment, embeddings, Qdrant ingestion, retrieval planning, and answer generation.
+- **Python / FastAPI agent service:** owns autonomous multi-agent planning, delegation, retry/critique loops, parsing, classification, extraction, AI-native validation/confidence assessment, embeddings, Qdrant ingestion, retrieval planning, answer generation, and final response composition from verified outputs.
 
 The boundary should be documented HTTP APIs, not duplicated logic. The TypeScript app should send processing requests containing conversation ID, message ID, document ID, workspace ID, file storage key, checksum, filename, content type, user instructions, and processing options. The Python service should return typed extraction results, agent assessment decisions, validation details, confidence scores, source references, Qdrant vector IDs, chat reply content, and structured errors.
 
@@ -94,7 +91,7 @@ The TypeScript app should own webhook configuration, delivery attempts, retry st
 
 - **Dashboard and product backend:** Next.js, React, TypeScript
 - **Agent and RAG service:** Python, FastAPI, uv
-- **Agent framework:** LangGraph for controlled agent workflows, LangChain for structured model calls, embeddings, and Qdrant integration
+- **Agent framework:** LangGraph for the autonomous multi-agent team and controlled ingestion/Q&A graphs; LangChain for structured model calls, embeddings, and Qdrant integration
 - **Future agent tool layer:** TypeScript/Node MCP server for controlled agent tools after the core MVP is working
 - **Structured database:** Postgres
 - **Vector database:** Qdrant
@@ -121,9 +118,9 @@ Postgres and Qdrant have different jobs. Postgres is the source of truth for exa
 
 ## Repository Status
 
-This repository currently contains the stabilized local Phase 5 LangGraph agent and RAG milestone. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, dependency-aware health checks, and a Python FastAPI agent service.
+This repository currently contains the local Phase 7 autonomous multi-agent milestone on top of the stabilized Phase 5 LangGraph/RAG foundation and Phase 6 supervisor layer. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs/agent runs/agent steps/agent artifacts, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, dependency-aware health checks, and a Python FastAPI agent service.
 
-The Python service now uses LangGraph for ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by the agent, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Text-only chat questions route through a Q&A planner that can use Postgres evidence, Qdrant retrieval, or both.
+The Python service now uses LangGraph for an autonomous document team plus lower-level ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by agents, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Chat messages create async agent runs, the Python team emits callback events, and the UI shows a multi-agent activity timeline while the run completes.
 
 This is still a local MVP prototype, not production software. It does not yet contain auth, webhook sync, MCP tooling, connector imports, OCR, CSV/XLSX extraction, production deployment workflows, or tenant isolation.
 
@@ -216,6 +213,8 @@ python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 800
 ```
 
 Live extraction and RAG require `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, `QDRANT_URL`, and `QDRANT_COLLECTION` from `.env`. If a key was exposed in terminal/chat output, rotate it in the OpenAI dashboard and replace the local `.env` value. Automated Python tests use deterministic mocked model/vector behavior and do not call OpenAI or Qdrant. Web tests mock Python agent calls and validate the chat/Q&A persistence boundary without using private documents.
+
+Async autonomous runs also require `AGENT_CALLBACK_BASE_URL` and `AGENT_CALLBACK_SECRET` in local `.env` so Python can send progress, completion, and failure callbacks to the TypeScript app. The default local callback base URL is `http://localhost:3000`.
 
 Verify the Python agent service from `services/agent`:
 
