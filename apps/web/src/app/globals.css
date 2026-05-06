@@ -34,6 +34,7 @@ body {
 }
 
 button,
+input,
 textarea {
   font: inherit;
 }
@@ -179,6 +180,8 @@ h3 {
   justify-content: end;
   gap: 12px;
   min-height: 360px;
+  max-height: calc(100svh - 270px);
+  overflow-y: auto;
   padding: 24px 0;
 }
 
@@ -226,10 +229,9 @@ h3 {
   font-weight: 800;
 }
 
-.composer textarea {
+.composer textarea,
+.field-group input {
   width: 100%;
-  min-height: 104px;
-  resize: vertical;
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   padding: 13px 14px;
@@ -237,9 +239,32 @@ h3 {
   color: var(--text);
 }
 
-.composer textarea:focus {
+.composer textarea {
+  min-height: 104px;
+  resize: vertical;
+}
+
+.composer textarea:focus,
+.field-group input:focus {
   outline: 3px solid rgba(15, 118, 110, 0.22);
   border-color: var(--accent);
+}
+
+.composer-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
+  gap: 12px;
+}
+
+.field-group {
+  display: grid;
+  gap: 8px;
+}
+
+.field-group span {
+  color: var(--text-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
 }
 
 .composer-actions {
@@ -267,6 +292,13 @@ h3 {
   opacity: 0.48;
 }
 
+.error-text {
+  margin: 0;
+  color: #9d174d;
+  font-size: 0.88rem;
+  font-weight: 750;
+}
+
 .status-panel {
   display: flex;
   flex-direction: column;
@@ -281,6 +313,34 @@ h3 {
 .status-list {
   display: grid;
   gap: 10px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.metric strong {
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.metric span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 .status-row {
@@ -312,14 +372,38 @@ h3 {
 }
 
 .state-online,
-.state-ready {
+.state-ready,
+.state-processing,
+.state-handoff_accepted {
   background: var(--accent-soft);
   color: #0c5f58;
 }
 
-.state-planned {
+.state-planned,
+.state-attached,
+.state-queued {
   background: var(--amber-soft);
   color: #7a4d00;
+}
+
+.state-failed,
+.state-handoff_failed {
+  background: #fde2e2;
+  color: #8f1d1d;
+}
+
+.empty-state {
+  min-height: 116px;
+  padding: 16px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 8px;
+  background: #fbfcfa;
+}
+
+.empty-state p {
+  margin-bottom: 0;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 @media (max-width: 1120px) {
@@ -346,6 +430,7 @@ h3 {
 
   .workspace-header,
   .composer-actions,
+  .composer-grid,
   .status-row {
     align-items: start;
     grid-template-columns: 1fr;

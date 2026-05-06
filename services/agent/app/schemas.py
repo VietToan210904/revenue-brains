@@ -18,6 +18,14 @@ class PlaceholderResponse(AgentBaseModel):
     message: str
 
 
+class DocumentAcceptedResponse(AgentBaseModel):
+    status: Literal["accepted"] = "accepted"
+    endpoint: Literal["/documents/process"] = "/documents/process"
+    document_id: str = Field(alias="documentId")
+    processing_implemented: Literal[False] = Field(default=False, alias="processingImplemented")
+    message: str
+
+
 class DocumentProcessRequest(AgentBaseModel):
     conversation_id: str = Field(alias="conversationId")
     message_id: str = Field(alias="messageId")

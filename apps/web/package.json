@@ -6,19 +6,28 @@
     "dev": "next dev",
     "build": "next build",
     "lint": "eslint .",
-    "test": "npm run lint"
+    "test": "npm run lint",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev --name phase3_chat_ingestion",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "dotenv": "^17.4.2",
     "next": "^16.2.4",
+    "pg": "^8.20.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.4",
     "eslint-config-next": "^16.2.4",
+    "prisma": "^7.8.0",
     "typescript": "^6.0.3"
   }
 }

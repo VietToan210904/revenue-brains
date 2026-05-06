@@ -2,7 +2,7 @@
 
 Revenue Brains is an AI-native document automation and company brain platform. Employees send chat messages with company documents attached, add natural-language instructions, and the system classifies, extracts, validates, saves exact records into Postgres, stores searchable memory in Qdrant, and powers reliable business Q&A.
 
-The first goal is not to build every integration at once. The project will move step by step through scaffold, chat ingestion, extraction, RAG, and dashboard/status milestones without pulling Phase 3 behavior into Phase 2.
+The first goal is not to build every integration at once. The project moves step by step through scaffold, chat ingestion, extraction, RAG, and dashboard/status milestones without pulling later behavior into earlier phases.
 
 ## Product Positioning
 
@@ -124,7 +124,9 @@ Postgres and Qdrant have different jobs. Postgres is the source of truth for exa
 
 ## Repository Status
 
-This repository currently contains the Phase 2 scaffold. It includes a Next.js web app scaffold, a Python FastAPI agent scaffold, DB-only Docker Compose configuration for local Postgres and Qdrant, baseline web and Python verification commands, and an ignored local upload storage path. It does not yet contain chat ingestion, upload handling, extraction, RAG, auth, webhook sync, MCP tooling, Prisma schema, or production workflows.
+This repository currently contains the Phase 3 chat ingestion pipeline. It includes a Next.js chat workspace, Prisma schema and migration for Postgres-backed conversations/messages/documents/jobs, multipart chat intake APIs, private local attachment storage, a Python FastAPI accepted-stub document endpoint, DB-only Docker Compose configuration for local Postgres and Qdrant, and baseline web and Python verification commands.
+
+It does not yet contain real document parsing, classification, extraction, embeddings, Qdrant ingestion, RAG answering, auth, webhook sync, MCP tooling, connector imports, or production workflows.
 
 Planned top-level structure:
 
@@ -192,9 +194,19 @@ npm run dev
 Verify the web app:
 
 ```bash
+npm run db:generate
+npm run db:migrate
 npm test
 npm run lint
 npm run build
+```
+
+Prisma commands from the repository root:
+
+```bash
+npm run db:generate
+npm run db:migrate
+npm run db:studio
 ```
 
 Run the Python agent service from `services/agent`:

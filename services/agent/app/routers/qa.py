@@ -13,7 +13,7 @@ router = APIRouter(prefix="/qa", tags=["qa"])
 def plan_answer(_request: QaPlanRequest) -> PlaceholderResponse:
     return PlaceholderResponse(
         endpoint="/qa/plan",
-        message="Q&A retrieval planning is intentionally not implemented in the Phase 2 scaffold.",
+        message="Q&A retrieval planning is intentionally not implemented yet.",
     )
 
 
@@ -25,5 +25,5 @@ def plan_answer(_request: QaPlanRequest) -> PlaceholderResponse:
 def answer_question(_request: QaAnswerRequest) -> PlaceholderResponse:
     return PlaceholderResponse(
         endpoint="/qa/answer",
-        message="Q&A answer generation is intentionally not implemented in the Phase 2 scaffold.",
+        message="Q&A answer generation is intentionally not implemented yet.",
     )

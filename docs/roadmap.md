@@ -43,6 +43,8 @@ Deferred from Phase 2:
 
 ## Phase 3: Chat Ingestion Pipeline
 
+Status: current implementation.
+
 Goals:
 
 - implement the agent chat interface with file attachments and instruction text
@@ -54,6 +56,8 @@ Goals:
 - send processing requests from TypeScript to Python with conversation/message IDs and user instructions
 
 Done means an employee can attach a supported text-based file to a chat message, include instructions, and see an agent reply plus a tracked processing job.
+
+The current Phase 3 implementation uses a Python accepted stub for `/documents/process`. Jobs can reach `PROCESSING` with stage `agent_handoff_accepted` or `FAILED` with stage `agent_handoff_failed`; no extraction completion state is produced in this phase.
 
 ## Phase 4: Classification And Extraction
 

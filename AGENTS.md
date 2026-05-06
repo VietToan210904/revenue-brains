@@ -2,12 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It currently contains the Phase 2 scaffold.
+This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It currently contains the Phase 3 chat ingestion pipeline.
 
 Keep contributor-facing documentation at the repository root. Use a monorepo layout that keeps the TypeScript product app and Python agent service separate:
 
-- `apps/web/` for the Next.js scaffold, future chat workspace, dashboard/status views, APIs, and TypeScript app tests.
-- `services/agent/` for the Python FastAPI scaffold, placeholder intelligence-service routes, and Python agent tests.
+- `apps/web/` for the Next.js chat workspace, dashboard/status views, APIs, Prisma schema, and TypeScript app tests.
+- `services/agent/` for the Python FastAPI service, accepted/placeholder intelligence-service routes, and Python agent tests.
 - `services/mcp-server/` for a future TypeScript/Node MCP server that exposes controlled tools to the Python agent. Do not add this in Phase 2.
 - `packages/shared/` for optional shared API schemas or generated types.
 - `docs/api/` for future HTTP API contracts between the TypeScript app and Python service.
@@ -90,7 +90,7 @@ All chat-attached documents should receive common metadata such as title, type, 
 
 Unknown documents are in scope as safe fallbacks. They should receive common metadata, summary, key facts, tags, source references, and confidence, but they should not force type-specific revenue or finance extraction unless reclassified into a supported type.
 
-For MVP processing, TypeScript should store the chat message and file attachment, then send Python a file storage key rather than raw file bytes. Local development should use an ignored private upload path. Phase 2 Docker Compose does not mount this path into web or agent containers because those containers are deferred.
+For MVP processing, TypeScript stores the chat message and file attachment, then sends Python a file storage key rather than raw file bytes. Local development uses an ignored private upload path. DB-only Docker Compose does not mount this path into web or agent containers because those containers are deferred.
 
 Automation should be automatic by default, with validation gates:
 
@@ -109,6 +109,9 @@ Web app commands from the repository root:
 
 - `npm ci`: install locked web dependencies.
 - `npm run dev`: start the local Next.js development server.
+- `npm run db:generate`: generate the Prisma client.
+- `npm run db:migrate`: apply local Prisma migrations.
+- `npm run db:studio`: inspect local Prisma data.
 - `npm test`: run the current web verification script.
 - `npm run lint`: run formatting and static checks.
 - `npm run build`: create a production build or distributable artifact.

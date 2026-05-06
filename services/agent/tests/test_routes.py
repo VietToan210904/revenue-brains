@@ -12,7 +12,7 @@ def test_health_returns_process_status() -> None:
     assert response.json() == {"status": "ok", "service": "agent"}
 
 
-def test_documents_process_is_placeholder() -> None:
+def test_documents_process_is_accepted_stub() -> None:
     response = client.post(
         "/documents/process",
         json={
@@ -29,9 +29,11 @@ def test_documents_process_is_placeholder() -> None:
     )
 
     body = response.json()
-    assert response.status_code == 501
-    assert body["status"] == "not_implemented"
+    assert response.status_code == 202
+    assert body["status"] == "accepted"
     assert body["endpoint"] == "/documents/process"
+    assert body["documentId"] == "doc_123"
+    assert body["processingImplemented"] is False
 
 
 def test_qa_plan_is_placeholder() -> None:

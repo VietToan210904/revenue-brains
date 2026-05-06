@@ -1,6 +1,6 @@
 # Revenue Brains Agent Service
 
-Python FastAPI scaffold for the Revenue Brains intelligence layer.
+Python FastAPI service for the Revenue Brains intelligence layer.
 
 ## Commands
 
@@ -12,6 +12,8 @@ uv run ruff check
 uv run ruff format
 ```
 
-The Phase 2 scaffold exposes process health and placeholder API routes only.
+The Phase 3 service exposes process health, placeholder Q&A routes, and an
+accepted-stub document handoff route at `POST /documents/process`.
+
 Document parsing, extraction, embeddings, Qdrant logic, and Postgres access are
-intentionally not implemented here.
+intentionally not implemented here yet.

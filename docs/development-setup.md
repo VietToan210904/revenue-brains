@@ -2,16 +2,19 @@
 
 ## Summary
 
-Revenue Brains currently has the Phase 2 scaffold:
+Revenue Brains currently has the Phase 3 chat ingestion pipeline:
 
-- Next.js web app scaffold in `apps/web`.
-- Python FastAPI agent scaffold in `services/agent`.
+- Next.js chat workspace in `apps/web`.
+- Prisma schema and migration for Postgres-backed chat intake records.
+- Multipart chat intake APIs for messages, attachments, documents, and jobs.
+- Python FastAPI agent service in `services/agent`.
+- Python `POST /documents/process` accepted stub for Phase 3 handoff.
 - DB-only Docker Compose infrastructure for local Postgres and Qdrant.
 - Ignored private local upload storage at `./uploads`.
 
 Phase 2 Docker Compose intentionally runs only Postgres and Qdrant. The web and agent services run locally with `npm` and `uv`. Web/agent Compose services are deferred to later full orchestration work.
 
-The scaffold exposes health and placeholder routes only. Chat ingestion, attachment upload handling, extraction, Qdrant ingestion, Prisma persistence, auth, webhook sync, and MCP tooling are not implemented yet.
+The current implementation proves chat ingestion and agent handoff only. Extraction, Qdrant ingestion, RAG answering, auth, webhook sync, and MCP tooling are not implemented yet.
 
 ## Required Tooling
 
@@ -61,6 +64,13 @@ Install web dependencies from the repository root:
 npm ci
 ```
 
+Generate the Prisma client and apply the local migration after Postgres is running:
+
+```bash
+npm run db:generate
+npm run db:migrate
+```
+
 Install Python agent dependencies from `services/agent`:
 
 ```bash
@@ -105,6 +115,7 @@ Current local endpoints:
 Web checks from the repository root:
 
 ```bash
+npm run db:generate
 npm test
 npm run lint
 npm run build
@@ -144,28 +155,30 @@ The current `docker-compose.yml` defines only:
 - `postgres`
 - `qdrant`
 
-It should remain DB-only for Phase 2. Do not add `web` or `agent` Compose services in Phase 2. Add those later only if the project chooses a full local orchestration milestone.
+It remains DB-only in Phase 3. Do not add `web` or `agent` Compose services until a later full local orchestration milestone.
 
-`UPLOAD_STORAGE_PATH=./uploads` establishes the local private storage path, but Phase 2 Compose does not mount it into web or agent containers because those containers are not part of this scaffold.
+`UPLOAD_STORAGE_PATH=./uploads` establishes the local private storage path. The web app writes attachments there and sends storage keys to the local Python process.
 
 ## Current Implementation Status
 
 Implemented:
 
-- Next.js App Router web scaffold.
+- Next.js App Router chat workspace.
 - Web health endpoint at `GET /api/health`.
+- Chat message endpoint at `POST /api/chat/messages`.
+- Conversation read endpoint at `GET /api/chat/:conversationId`.
+- Processing job read endpoint at `GET /api/jobs/:jobId`.
+- Prisma schema and migration for workspace, conversation, message, document, and processing job records.
 - FastAPI app scaffold.
 - Agent health endpoint at `GET /health`.
-- Placeholder agent routes for document processing and Q&A contracts.
-- Python tests for the agent health and placeholder routes.
+- Accepted-stub document handoff endpoint at `POST /documents/process`.
+- Placeholder Q&A contracts.
+- Python tests for the agent health, accepted document handoff, and placeholder Q&A routes.
 - Local Postgres and Qdrant Compose infrastructure.
 - Environment template aligned with local ports.
 
 Not implemented yet:
 
-- Chat ingestion and file attachment APIs.
-- Upload handling.
-- Prisma schema, migrations, or Postgres reads/writes.
 - Actual document parsing, classification, extraction, validation, embeddings, Qdrant ingestion, or answer generation.
 - Web/agent Compose containers.
 - Auth, webhook sync, MCP server, OCR, CSV/XLSX extraction, connector imports, or production deployment.
@@ -173,8 +186,8 @@ Not implemented yet:
 ## Local Development Assumptions
 
 - Development starts locally before cloud deployment.
-- Docker Compose is used for local data services only in Phase 2.
-- Original chat attachments are private and should live in ignored local storage when chat ingestion is implemented.
+- Docker Compose is used for local data services only in Phase 3.
+- Original chat attachments are private and live in ignored local storage.
 - Sample fixtures must be synthetic and safe to commit.
 - Real company documents must not be committed.
 - Raw document content should not be logged.

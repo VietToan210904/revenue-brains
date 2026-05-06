@@ -1,16 +1,16 @@
 # API Contracts
 
-This directory documents the HTTP boundary between the TypeScript web app and the Python agent service. The current Phase 2 scaffold implements health routes and placeholder agent routes only. Chat ingestion and persistence APIs are documented for the next phase but are not implemented yet.
+This directory documents the HTTP boundary between the TypeScript web app and the Python agent service. The current Phase 3 implementation includes web health, chat ingestion, conversation/job reads, Python health, Python document handoff acceptance, and placeholder Q&A routes.
 
 ## Ownership
 
-- TypeScript owns future Postgres reads and writes through Prisma.
+- TypeScript owns Postgres reads and writes through Prisma.
 - Python owns parsing, extraction, validation, Qdrant writes, Qdrant retrieval, and final answer generation.
 - Python should not connect directly to Postgres in the MVP.
 - Q&A flows that need exact records should use typed retrieval plans and structured Postgres evidence passed through the TypeScript app.
 - Chat message and attachment APIs are the primary MVP ingestion interface. A separate dashboard upload endpoint should not be added before the chat ingestion flow works.
 
-## Implemented Web Endpoint
+## Implemented Web Endpoints
 
 ### `GET /api/health`
 
@@ -33,6 +33,29 @@ Example response:
 
 This route does not require Postgres, Qdrant, OpenAI, or the Python agent to be available.
 
+### `POST /api/chat/messages`
+
+Accepts multipart form data from the chat composer.
+
+Fields:
+
+- `conversationId`: optional existing conversation ID.
+- `content`: optional chat message text.
+- `userInstructions`: optional processing instruction text.
+- `files`: zero or more attached files.
+
+The route creates or updates a conversation, stores the user chat message, saves attached files under ignored local upload storage, stores document metadata and processing jobs in Postgres, calls Python `POST /documents/process` once per document, and stores an assistant status reply.
+
+Phase 3 returns handoff/job status only. It does not parse document text, extract fields, create embeddings, or use Qdrant.
+
+### `GET /api/chat/:conversationId`
+
+Returns one conversation with ordered messages, attached documents, and processing jobs.
+
+### `GET /api/jobs/:jobId`
+
+Returns one processing job with its document metadata.
+
 ## Implemented Agent Endpoints
 
 ### `GET /health`
@@ -50,7 +73,7 @@ Example response:
 
 ### `POST /documents/process`
 
-Current status: implemented as a Phase 2 placeholder that validates the request body and returns `501`.
+Current status: implemented as a Phase 3 accepted stub that validates the request body and returns `202`.
 
 Request shape:
 
@@ -69,13 +92,15 @@ Request shape:
 }
 ```
 
-Current placeholder response:
+Current accepted-stub response:
 
 ```json
 {
-  "status": "not_implemented",
+  "status": "accepted",
   "endpoint": "/documents/process",
-  "message": "Document processing is intentionally not implemented in the Phase 2 scaffold."
+  "documentId": "doc_123",
+  "processingImplemented": false,
+  "message": "Document processing was accepted for a future extraction phase."
 }
 ```
 
@@ -83,7 +108,7 @@ Future processing response should include detected document type, extracted fiel
 
 ### `POST /qa/plan`
 
-Current status: implemented as a Phase 2 placeholder that validates the request body and returns `501`.
+Current status: implemented as a placeholder that validates the request body and returns `501`.
 
 Request shape:
 
@@ -102,7 +127,7 @@ Current placeholder response:
 {
   "status": "not_implemented",
   "endpoint": "/qa/plan",
-  "message": "Q&A retrieval planning is intentionally not implemented in the Phase 2 scaffold."
+  "message": "Q&A retrieval planning is intentionally not implemented yet."
 }
 ```
 
@@ -110,7 +135,7 @@ Future response should identify whether exact Postgres evidence, Qdrant semantic
 
 ### `POST /qa/answer`
 
-Current status: implemented as a Phase 2 placeholder that validates the request body and returns `501`.
+Current status: implemented as a placeholder that validates the request body and returns `501`.
 
 Request shape:
 
@@ -130,23 +155,15 @@ Current placeholder response:
 {
   "status": "not_implemented",
   "endpoint": "/qa/answer",
-  "message": "Q&A answer generation is intentionally not implemented in the Phase 2 scaffold."
+  "message": "Q&A answer generation is intentionally not implemented yet."
 }
 ```
 
 Future response should return an answer with citations where possible and should say when there is not enough evidence.
 
-## Planned Web Endpoints
-
-These endpoints are part of Phase 3 or later and are not implemented in the current scaffold:
-
-- `POST /api/chat/messages`: accepts message text plus zero or more file attachments. Creates or updates a conversation, stores attachments privately, creates document records and processing jobs for attached files, and returns the user message plus initial agent/job status.
-- `GET /api/chat/:conversationId`: returns conversation messages, agent replies, attached documents, extracted-record links, and processing status.
-- `GET /api/jobs/:jobId`: returns processing status for a job started from a chat attachment.
-
 ## MVP Processing Request
 
-When implemented, the TypeScript app should send Python:
+The TypeScript app sends Python:
 
 - `conversationId`
 - `messageId`

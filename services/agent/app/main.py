@@ -6,7 +6,7 @@ from app.routers import documents, health, qa
 def create_app() -> FastAPI:
     app = FastAPI(
         title="Revenue Brains Agent Service",
-        summary="Phase 2 scaffold for the Python intelligence service.",
+        summary="Python intelligence service for Revenue Brains.",
         version="0.1.0",
     )
 

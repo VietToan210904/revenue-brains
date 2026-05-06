@@ -1,0 +1,126 @@
+generator client {
+  provider   = "prisma-client"
+  output     = "../src/generated/prisma"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+enum DocumentType {
+  INVOICE
+  CONTRACT
+  PURCHASE_ORDER
+  RECEIPT_EXPENSE
+  KNOWLEDGE
+  UNKNOWN
+}
+
+enum DocumentStatus {
+  ATTACHED
+  HANDOFF_ACCEPTED
+  HANDOFF_FAILED
+}
+
+enum ProcessingJobStatus {
+  QUEUED
+  PROCESSING
+  FAILED
+}
+
+model Workspace {
+  id            String          @id @default(cuid())
+  name          String
+  slug          String          @unique
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  conversations Conversation[]
+  messages      ChatMessage[]
+  documents     Document[]
+  jobs          ProcessingJob[]
+}
+
+model Conversation {
+  id          String          @id @default(cuid())
+  workspaceId String
+  title       String
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages    ChatMessage[]
+  documents   Document[]
+  jobs        ProcessingJob[]
+
+  @@index([workspaceId, createdAt])
+}
+
+model ChatMessage {
+  id             String        @id @default(cuid())
+  workspaceId    String
+  conversationId String
+  role           MessageRole
+  content        String
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  documents      Document[]
+
+  @@index([conversationId, createdAt])
+  @@index([workspaceId, createdAt])
+}
+
+model Document {
+  id               String          @id @default(cuid())
+  workspaceId      String
+  conversationId   String
+  messageId        String
+  originalFilename String
+  contentType      String
+  storageKey       String
+  checksum         String
+  sizeBytes        Int
+  userInstructions String?
+  documentType     DocumentType    @default(UNKNOWN)
+  status           DocumentStatus  @default(ATTACHED)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation     Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message          ChatMessage     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  jobs             ProcessingJob[]
+
+  @@index([conversationId, createdAt])
+  @@index([workspaceId, createdAt])
+  @@index([checksum])
+}
+
+model ProcessingJob {
+  id              String              @id @default(cuid())
+  workspaceId     String
+  conversationId  String
+  documentId      String
+  status          ProcessingJobStatus @default(QUEUED)
+  stage           String              @default("queued")
+  agentEndpoint   String?
+  agentStatusCode Int?
+  errorMessage    String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  acceptedAt      DateTime?
+  failedAt        DateTime?
+  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation    Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  document        Document            @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([documentId, createdAt])
+  @@index([workspaceId, status])
+}
