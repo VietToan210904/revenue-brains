@@ -1,15 +1,12 @@
+import { collectHealth } from "@/lib/health";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export function GET() {
-  return Response.json({
-    status: "ok",
-    service: "web",
-    app: "revenue-brains",
-    timestamp: new Date().toISOString(),
-    uptimeSeconds: Math.round(process.uptime()),
-    checks: {
-      process: "ok"
-    }
+export async function GET() {
+  const health = await collectHealth();
+
+  return Response.json(health, {
+    status: health.status === "ok" ? 200 : 503
   });
 }
