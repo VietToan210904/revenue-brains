@@ -27,50 +27,76 @@ enum DocumentStatus {
   ATTACHED
   HANDOFF_ACCEPTED
   HANDOFF_FAILED
+  EXTRACTED
+  NEEDS_REVIEW
+  EXTRACTION_FAILED
 }
 
 enum ProcessingJobStatus {
   QUEUED
   PROCESSING
+  EXTRACTED
+  NEEDS_REVIEW
+  EXTRACTION_FAILED
   FAILED
 }
 
+enum ValidationStatus {
+  PASSED
+  NEEDS_REVIEW
+  FAILED
+}
+
+enum ExtractedFieldType {
+  STRING
+  NUMBER
+  DATE
+  CURRENCY
+  BOOLEAN
+  JSON
+}
+
 model Workspace {
-  id            String          @id @default(cuid())
-  name          String
-  slug          String          @unique
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-  conversations Conversation[]
-  messages      ChatMessage[]
-  documents     Document[]
-  jobs          ProcessingJob[]
+  id               String            @id @default(cuid())
+  name             String
+  slug             String            @unique
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  conversations    Conversation[]
+  messages         ChatMessage[]
+  documents        Document[]
+  jobs             ProcessingJob[]
+  extractedRecords ExtractedRecord[]
+  extractedFields  ExtractedField[]
+  sourceReferences SourceReference[]
+  vectorReferences VectorReference[]
 }
 
 model Conversation {
-  id          String          @id @default(cuid())
-  workspaceId String
-  title       String
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  workspace   Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  messages    ChatMessage[]
-  documents   Document[]
-  jobs        ProcessingJob[]
+  id               String            @id @default(cuid())
+  workspaceId      String
+  title            String
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  messages         ChatMessage[]
+  documents        Document[]
+  jobs             ProcessingJob[]
+  extractedRecords ExtractedRecord[]
 
   @@index([workspaceId, createdAt])
 }
 
 model ChatMessage {
-  id             String        @id @default(cuid())
+  id             String       @id @default(cuid())
   workspaceId    String
   conversationId String
   role           MessageRole
   content        String
   metadata       Json?
-  createdAt      DateTime      @default(now())
-  workspace      Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   documents      Document[]
 
   @@index([conversationId, createdAt])
@@ -78,7 +104,7 @@ model ChatMessage {
 }
 
 model Document {
-  id               String          @id @default(cuid())
+  id               String            @id @default(cuid())
   workspaceId      String
   conversationId   String
   messageId        String
@@ -88,14 +114,18 @@ model Document {
   checksum         String
   sizeBytes        Int
   userInstructions String?
-  documentType     DocumentType    @default(UNKNOWN)
-  status           DocumentStatus  @default(ATTACHED)
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  workspace        Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation     Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message          ChatMessage     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  documentType     DocumentType      @default(UNKNOWN)
+  status           DocumentStatus    @default(ATTACHED)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation     Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message          ChatMessage       @relation(fields: [messageId], references: [id], onDelete: Cascade)
   jobs             ProcessingJob[]
+  extractedRecord  ExtractedRecord?
+  extractedFields  ExtractedField[]
+  sourceReferences SourceReference[]
+  vectorReferences VectorReference[]
 
   @@index([conversationId, createdAt])
   @@index([workspaceId, createdAt])
@@ -123,4 +153,104 @@ model ProcessingJob {
   @@index([conversationId, createdAt])
   @@index([documentId, createdAt])
   @@index([workspaceId, status])
+}
+
+model ExtractedRecord {
+  id                String            @id @default(cuid())
+  workspaceId       String
+  conversationId    String
+  documentId        String            @unique
+  documentType      DocumentType
+  title             String
+  summary           String
+  keyFacts          Json
+  tags              Json
+  confidence        Float
+  validationStatus  ValidationStatus
+  normalizedPayload Json
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation      Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  document          Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fields            ExtractedField[]
+  sourceReferences  SourceReference[]
+  vectorReferences  VectorReference[]
+
+  @@index([workspaceId, documentType])
+  @@index([conversationId, createdAt])
+  @@index([validationStatus])
+}
+
+model ExtractedField {
+  id                String             @id @default(cuid())
+  workspaceId       String
+  documentId        String
+  extractedRecordId String
+  name              String
+  label             String?
+  fieldType         ExtractedFieldType
+  valueString       String?
+  valueNumber       Float?
+  valueDate         DateTime?
+  currency          String?
+  valueJson         Json?
+  confidence        Float
+  required          Boolean            @default(false)
+  validationStatus  ValidationStatus
+  createdAt         DateTime           @default(now())
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document          Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  extractedRecord   ExtractedRecord    @relation(fields: [extractedRecordId], references: [id], onDelete: Cascade)
+  sourceReferences  SourceReference[]
+
+  @@index([workspaceId, name])
+  @@index([documentId, name])
+  @@index([extractedRecordId])
+  @@index([validationStatus])
+}
+
+model SourceReference {
+  id                String          @id @default(cuid())
+  workspaceId       String
+  documentId        String
+  extractedRecordId String
+  extractedFieldId  String?
+  pageNumber        Int?
+  paragraphIndex    Int?
+  lineStart         Int?
+  lineEnd           Int?
+  charStart         Int?
+  charEnd           Int?
+  evidenceSnippet   String?
+  createdAt         DateTime        @default(now())
+  workspace         Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document          Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  extractedRecord   ExtractedRecord @relation(fields: [extractedRecordId], references: [id], onDelete: Cascade)
+  extractedField    ExtractedField? @relation(fields: [extractedFieldId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, documentId])
+  @@index([extractedRecordId])
+  @@index([extractedFieldId])
+}
+
+model VectorReference {
+  id                String           @id @default(cuid())
+  workspaceId       String
+  documentId        String
+  extractedRecordId String?
+  chunkId           String
+  chunkIndex        Int
+  qdrantCollection  String
+  qdrantPointId     String           @unique
+  contentPreview    String
+  metadata          Json
+  createdAt         DateTime         @default(now())
+  workspace         Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  document          Document         @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  extractedRecord   ExtractedRecord? @relation(fields: [extractedRecordId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, documentId])
+  @@index([extractedRecordId])
+  @@index([qdrantCollection])
 }
