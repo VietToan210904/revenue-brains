@@ -6,7 +6,7 @@ Revenue Brains should be built in focused milestones. The goal is to avoid build
 
 ## Phase 1: Documentation Foundation
 
-Status: current milestone.
+Status: complete.
 
 Goals:
 
@@ -27,14 +27,19 @@ Goals:
 - create the Next.js TypeScript app
 - create the Python FastAPI service
 - add initial HTTP API contract docs under `docs/api/` or shared schemas under `packages/shared/`
-- add Docker Compose for local services
+- add DB-only Docker Compose for local Postgres and Qdrant
 - add Postgres and Qdrant local configuration
 - add local private attachment/upload storage or an object-storage-compatible development service
-- add Prisma
 - update environment templates
 - add baseline lint, test, and build commands
 
-Done means the app and Python service can start locally and health checks pass.
+Done means the web app and Python service can start locally with npm and uv, Postgres and Qdrant are configured through DB-only Compose, and health checks pass.
+
+Deferred from Phase 2:
+
+- Prisma schema and migrations
+- web and agent Docker Compose services
+- chat ingestion, upload handling, extraction, Qdrant ingestion, RAG, auth, webhook sync, MCP, and connector behavior
 
 ## Phase 3: Chat Ingestion Pipeline
 

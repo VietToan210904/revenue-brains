@@ -2,7 +2,7 @@
 
 Revenue Brains is an AI-native document automation and company brain platform. Employees send chat messages with company documents attached, add natural-language instructions, and the system classifies, extracts, validates, saves exact records into Postgres, stores searchable memory in Qdrant, and powers reliable business Q&A.
 
-The first goal is not to build every integration at once. The project will move step by step, starting with a clear documentation foundation and then adding the application, agent service, databases, chat ingestion flow, extraction, RAG, and dashboard/status views in focused milestones.
+The first goal is not to build every integration at once. The project will move step by step through scaffold, chat ingestion, extraction, RAG, and dashboard/status milestones without pulling Phase 3 behavior into Phase 2.
 
 ## Product Positioning
 
@@ -53,7 +53,7 @@ Chat-attached files are private source artifacts, not generated repo assets. Whe
 
 Extracted fields, chunks, facts, and Q&A citations must reference the source document. Source references should preserve enough location data to audit an answer or extraction later, such as page number, text span, bounding box when available, chunk ID, and related Postgres record ID. Qdrant should store semantic chunks and metadata, but it should not become the only place where source identity, exact records, or audit state live.
 
-For the MVP, TypeScript should hand Python a storage key rather than raw file bytes. Local development should use a private upload volume shared by the app and agent service; later deployments can map the same contract to object storage.
+For the MVP, TypeScript should hand Python a storage key rather than raw file bytes. Local development should resolve that key against an ignored private upload path shared by the local web and agent processes; later deployments can map the same contract to object storage.
 
 ## Service Boundary
 
@@ -103,7 +103,7 @@ The TypeScript app should own webhook configuration, delivery attempts, retry st
 - **Vector database:** Qdrant
 - **Database access:** Prisma for the TypeScript app
 - **AI provider:** OpenAI API
-- **Local development:** Docker Compose
+- **Local development:** DB-only Docker Compose for Postgres and Qdrant; web and agent run locally with npm and uv
 - **Testing:** TypeScript tests for app logic and Python tests for agent logic
 
 ## Architecture Overview
@@ -124,7 +124,7 @@ Postgres and Qdrant have different jobs. Postgres is the source of truth for exa
 
 ## Repository Status
 
-This repository is currently in a documentation-first stage. It does not yet contain application source code, package manager configuration, database schema, Docker Compose configuration, or automated tests.
+This repository currently contains the Phase 2 scaffold. It includes a Next.js web app scaffold, a Python FastAPI agent scaffold, DB-only Docker Compose configuration for local Postgres and Qdrant, baseline web and Python verification commands, and an ignored local upload storage path. It does not yet contain chat ingestion, upload handling, extraction, RAG, auth, webhook sync, MCP tooling, Prisma schema, or production workflows.
 
 Planned top-level structure:
 
@@ -146,30 +146,73 @@ docs/               product, architecture, agent, roadmap, and setup documentati
 
 Generated outputs, caches, secrets, and private company documents must stay out of the repository.
 
-## Planned Development Commands
+## Local Infrastructure
 
-No commands are configured yet. Once tooling exists, prefer project scripts instead of ad hoc commands:
+Copy the environment template and create the ignored upload directory:
+
+```powershell
+Copy-Item .env.example .env
+New-Item -ItemType Directory -Force uploads
+```
+
+Start only Postgres and Qdrant with Docker Compose:
 
 ```bash
+docker compose up -d postgres qdrant
+```
+
+Default local endpoints:
+
+- Web app: `http://localhost:3000`
+- Web health: `http://localhost:3000/api/health`
+- Python agent service: `http://localhost:8000`
+- Python agent health: `http://localhost:8000/health`
+- Postgres: `localhost:5432`
+- Qdrant HTTP: `http://localhost:6333`
+- Qdrant gRPC: `localhost:6334`
+- Private local uploads: `./uploads`
+
+Stop the infrastructure with:
+
+```bash
+docker compose down
+```
+
+Use `docker compose down -v` only when you intentionally want to delete local Postgres and Qdrant data volumes.
+
+## Development Commands
+
+Install and run the web app from the repository root:
+
+```bash
+npm ci
 npm run dev
+```
+
+Verify the web app:
+
+```bash
 npm test
 npm run lint
 npm run build
 ```
 
-The Python agent service will also receive documented commands when it is added.
+Run the Python agent service from `services/agent`:
 
-## Local Setup Placeholder
+```bash
+uv sync
+uv run uvicorn app.main:app --reload --port 8000
+```
 
-Local setup will be added after the scaffold milestone. The intended local environment will include:
+Verify the Python agent service from `services/agent`:
 
-- Node.js for the Next.js app
-- Python for the FastAPI agent service
-- uv for Python dependency management and agent commands
-- Postgres for structured data
-- Qdrant for vector search
-- OpenAI API credentials
-- Docker Compose for running local services together
+```bash
+uv run pytest
+uv run ruff check
+uv run ruff format --check
+```
+
+Web and agent Docker Compose services are intentionally deferred to later full orchestration work. Phase 2 Compose runs Postgres and Qdrant only.
 
 Do not commit real API keys, database credentials, customer documents, or private company data.
 

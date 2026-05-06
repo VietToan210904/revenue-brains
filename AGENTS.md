@@ -2,13 +2,13 @@
 
 ## Project Structure & Module Organization
 
-This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It is currently documentation-first and does not yet contain an application source tree.
+This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It currently contains the Phase 2 scaffold.
 
-Keep contributor-facing documentation at the repository root. As implementation is added, use a monorepo layout that keeps the TypeScript product app and Python agent service separate:
+Keep contributor-facing documentation at the repository root. Use a monorepo layout that keeps the TypeScript product app and Python agent service separate:
 
-- `apps/web/` for the Next.js chat workspace, dashboard/status views, APIs, and TypeScript app tests.
-- `services/agent/` for the Python FastAPI intelligence service and Python agent tests.
-- `services/mcp-server/` for a future TypeScript/Node MCP server that exposes controlled tools to the Python agent.
+- `apps/web/` for the Next.js scaffold, future chat workspace, dashboard/status views, APIs, and TypeScript app tests.
+- `services/agent/` for the Python FastAPI scaffold, placeholder intelligence-service routes, and Python agent tests.
+- `services/mcp-server/` for a future TypeScript/Node MCP server that exposes controlled tools to the Python agent. Do not add this in Phase 2.
 - `packages/shared/` for optional shared API schemas or generated types.
 - `docs/api/` for future HTTP API contracts between the TypeScript app and Python service.
 - `tests/integration/` for cross-service tests and safe synthetic fixtures.
@@ -16,7 +16,7 @@ Keep contributor-facing documentation at the repository root. As implementation 
 - `config/` for checked-in, non-secret configuration templates.
 - `docs/` for product, architecture, agent, roadmap, and setup documentation.
 
-Keep generated outputs, local caches, and credentials out of the repository.
+Keep generated outputs, local caches, uploaded files, and credentials out of the repository. Track `services/agent/uv.lock` because the Python agent is a uv project.
 
 ## Product Intent
 
@@ -90,7 +90,7 @@ All chat-attached documents should receive common metadata such as title, type, 
 
 Unknown documents are in scope as safe fallbacks. They should receive common metadata, summary, key facts, tags, source references, and confidence, but they should not force type-specific revenue or finance extraction unless reclassified into a supported type.
 
-For MVP processing, TypeScript should store the chat message and file attachment, then send Python a file storage key rather than raw file bytes. Local development should use a private upload volume shared by the app and agent service.
+For MVP processing, TypeScript should store the chat message and file attachment, then send Python a file storage key rather than raw file bytes. Local development should use an ignored private upload path. Phase 2 Docker Compose does not mount this path into web or agent containers because those containers are deferred.
 
 Automation should be automatic by default, with validation gates:
 
@@ -100,20 +100,26 @@ Automation should be automatic by default, with validation gates:
 
 ## Build, Test, and Development Commands
 
-No package manager, build script, or test runner is configured yet. Before adding new tooling, document it in `README.md` and keep this file updated. Recommended command names once tooling exists:
+Docker Compose is configured only for local Postgres and Qdrant infrastructure:
 
-- `npm run dev` or equivalent: start the local development server.
-- `npm test`: run the full automated test suite.
+- `docker compose up -d postgres qdrant`: start local infrastructure services.
+- `docker compose down`: stop local infrastructure services while preserving named data volumes.
+
+Web app commands from the repository root:
+
+- `npm ci`: install locked web dependencies.
+- `npm run dev`: start the local Next.js development server.
+- `npm test`: run the current web verification script.
 - `npm run lint`: run formatting and static checks.
 - `npm run build`: create a production build or distributable artifact.
 
-Recommended Python command names once the agent service exists:
+Python agent commands from `services/agent/`:
 
 - `uv sync`: install Python agent dependencies.
 - `uv run uvicorn app.main:app --reload --port 8000`: start the FastAPI service locally.
 - `uv run pytest`: run Python agent tests.
 - `uv run ruff check`: run Python linting.
-- `uv run ruff format`: format Python code.
+- `uv run ruff format --check`: check Python formatting.
 
 Use the project’s configured scripts rather than ad hoc commands when available.
 
