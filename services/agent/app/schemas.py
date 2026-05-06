@@ -18,14 +18,6 @@ class PlaceholderResponse(AgentBaseModel):
     message: str
 
 
-class DocumentAcceptedResponse(AgentBaseModel):
-    status: Literal["accepted"] = "accepted"
-    endpoint: Literal["/documents/process"] = "/documents/process"
-    document_id: str = Field(alias="documentId")
-    processing_implemented: Literal[False] = Field(default=False, alias="processingImplemented")
-    message: str
-
-
 class DocumentProcessRequest(AgentBaseModel):
     conversation_id: str = Field(alias="conversationId")
     message_id: str = Field(alias="messageId")
@@ -39,6 +31,105 @@ class DocumentProcessRequest(AgentBaseModel):
     processing_options: dict[str, Any] = Field(default_factory=dict, alias="processingOptions")
 
 
+DocumentTypeValue = Literal[
+    "INVOICE",
+    "CONTRACT",
+    "PURCHASE_ORDER",
+    "RECEIPT_EXPENSE",
+    "KNOWLEDGE",
+    "UNKNOWN",
+]
+
+ValidationStatusValue = Literal["passed", "needs_review", "failed"]
+FieldTypeValue = Literal["STRING", "NUMBER", "DATE", "CURRENCY", "BOOLEAN", "JSON"]
+ExtractionStatusValue = Literal["extracted", "needs_review"]
+AutomationDecisionValue = Literal["safe_to_save", "save_for_review"]
+
+
+class ExtractedFieldPayload(AgentBaseModel):
+    name: str
+    label: str | None = None
+    field_type: FieldTypeValue = Field(alias="fieldType")
+    value_string: str | None = Field(default=None, alias="valueString")
+    value_number: float | None = Field(default=None, alias="valueNumber")
+    value_date: str | None = Field(default=None, alias="valueDate")
+    currency: str | None = None
+    value_json: Any | None = Field(default=None, alias="valueJson")
+    confidence: float = Field(ge=0, le=1)
+    required: bool = False
+    validation_status: ValidationStatusValue = Field(alias="validationStatus")
+
+
+class SourceReferencePayload(AgentBaseModel):
+    field_name: str | None = Field(default=None, alias="fieldName")
+    page_number: int | None = Field(default=None, alias="pageNumber")
+    paragraph_index: int | None = Field(default=None, alias="paragraphIndex")
+    line_start: int | None = Field(default=None, alias="lineStart")
+    line_end: int | None = Field(default=None, alias="lineEnd")
+    char_start: int | None = Field(default=None, alias="charStart")
+    char_end: int | None = Field(default=None, alias="charEnd")
+    evidence_snippet: str | None = Field(default=None, alias="evidenceSnippet")
+
+
+class VectorReferencePayload(AgentBaseModel):
+    chunk_id: str = Field(alias="chunkId")
+    qdrant_collection: str = Field(alias="qdrantCollection")
+    qdrant_point_id: str = Field(alias="qdrantPointId")
+    chunk_index: int = Field(alias="chunkIndex")
+    content_preview: str = Field(alias="contentPreview")
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class ExtractionValidationPayload(AgentBaseModel):
+    status: ValidationStatusValue
+    missing_required_fields: list[str] = Field(default_factory=list, alias="missingRequiredFields")
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AgentAssessmentPayload(AgentBaseModel):
+    status: ExtractionStatusValue
+    validation_status: ValidationStatusValue = Field(alias="validationStatus")
+    document_confidence: float = Field(alias="documentConfidence", ge=0, le=1)
+    review_required: bool = Field(alias="reviewRequired")
+    review_reasons: list[str] = Field(default_factory=list, alias="reviewReasons")
+    missing_fields: list[str] = Field(default_factory=list, alias="missingFields")
+    uncertain_fields: list[str] = Field(default_factory=list, alias="uncertainFields")
+    automation_decision: AutomationDecisionValue = Field(alias="automationDecision")
+    automation_decision_reason: str = Field(alias="automationDecisionReason")
+
+
+class DocumentProcessResponse(AgentBaseModel):
+    status: ExtractionStatusValue
+    document_id: str = Field(alias="documentId")
+    document_type: DocumentTypeValue = Field(alias="documentType")
+    title: str
+    common_fields: list[ExtractedFieldPayload] = Field(alias="commonFields")
+    type_specific_fields: list[ExtractedFieldPayload] = Field(alias="typeSpecificFields")
+    summary: str
+    key_facts: list[str] = Field(alias="keyFacts")
+    tags: list[str]
+    document_confidence: float = Field(alias="documentConfidence", ge=0, le=1)
+    field_confidences: dict[str, float] = Field(alias="fieldConfidences")
+    validation: ExtractionValidationPayload
+    agent_assessment: AgentAssessmentPayload = Field(alias="agentAssessment")
+    source_references: list[SourceReferencePayload] = Field(alias="sourceReferences")
+    vector_references: list[VectorReferencePayload] = Field(
+        default_factory=list,
+        alias="vectorReferences",
+    )
+    chat_reply: str = Field(alias="chatReply")
+    processing_implemented: Literal[True] = Field(default=True, alias="processingImplemented")
+
+
+class DocumentProcessErrorResponse(AgentBaseModel):
+    status: Literal["error"] = "error"
+    code: str
+    message: str
+    document_id: str | None = Field(default=None, alias="documentId")
+    processing_implemented: Literal[True] = Field(default=True, alias="processingImplemented")
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
 class QaPlanRequest(AgentBaseModel):
     workspace_id: str = Field(alias="workspaceId")
     question: str
@@ -46,9 +137,39 @@ class QaPlanRequest(AgentBaseModel):
     filters: dict[str, Any] = Field(default_factory=dict)
 
 
+class QaPlanResponse(AgentBaseModel):
+    status: Literal["planned"] = "planned"
+    retrieval_mode: Literal["postgres", "qdrant", "hybrid"] = Field(alias="retrievalMode")
+    postgres_query: dict[str, Any] = Field(default_factory=dict, alias="postgresQuery")
+    qdrant_query: str = Field(alias="qdrantQuery")
+    reasoning: str
+
+
 class QaAnswerRequest(AgentBaseModel):
     workspace_id: str = Field(alias="workspaceId")
     question: str
     conversation_id: str | None = Field(default=None, alias="conversationId")
+    retrieval_mode: Literal["postgres", "qdrant", "hybrid"] | None = Field(
+        default=None,
+        alias="retrievalMode",
+    )
     postgres_evidence: list[dict[str, Any]] = Field(default_factory=list, alias="postgresEvidence")
     qdrant_context: list[dict[str, Any]] = Field(default_factory=list, alias="qdrantContext")
+
+
+class QaCitationPayload(AgentBaseModel):
+    source_type: Literal["postgres", "qdrant"] = Field(alias="sourceType")
+    document_id: str | None = Field(default=None, alias="documentId")
+    record_id: str | None = Field(default=None, alias="recordId")
+    qdrant_point_id: str | None = Field(default=None, alias="qdrantPointId")
+    title: str | None = None
+    snippet: str | None = None
+
+
+class QaAnswerResponse(AgentBaseModel):
+    status: Literal["answered"] = "answered"
+    answer: str
+    retrieval_mode: Literal["postgres", "qdrant", "hybrid"] = Field(alias="retrievalMode")
+    citations: list[QaCitationPayload] = Field(default_factory=list)
+    confidence: float = Field(ge=0, le=1)
+    limitations: list[str] = Field(default_factory=list)
