@@ -175,7 +175,7 @@ def extract_with_openai(
     if not api_key:
         raise DocumentProcessingError(
             "model_not_configured",
-            "OPENAI_API_KEY is required for Phase 4 extraction.",
+            "OPENAI_API_KEY is required for document extraction.",
             status_code=503,
         )
 

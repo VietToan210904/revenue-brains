@@ -14,7 +14,7 @@ This directory documents the HTTP boundary between the TypeScript web app and th
 
 ### `GET /api/health`
 
-Returns web app process health.
+Returns web app health plus local dependency checks for Postgres, the Python agent, Qdrant, and the configured Qdrant collection.
 
 Example response:
 
@@ -26,12 +26,35 @@ Example response:
   "timestamp": "2026-05-06T06:00:00.000Z",
   "uptimeSeconds": 12,
   "checks": {
-    "process": "ok"
+    "process": {
+      "status": "ok",
+      "message": "Web process is running."
+    },
+    "postgres": {
+      "status": "ok",
+      "message": "Postgres query succeeded.",
+      "durationMs": 8
+    },
+    "agent": {
+      "status": "ok",
+      "message": "Python agent health check succeeded.",
+      "durationMs": 14
+    },
+    "qdrant": {
+      "status": "ok",
+      "message": "Qdrant service is reachable.",
+      "durationMs": 9
+    },
+    "qdrantCollection": {
+      "status": "ok",
+      "message": "Qdrant collection 'revenue_brains_documents' exists.",
+      "durationMs": 10
+    }
   }
 }
 ```
 
-This route does not require Postgres, Qdrant, OpenAI, or the Python agent to be available.
+The top-level `status` is `ok` when every dependency check passes and `degraded` when one or more local dependencies are unavailable. The route must not expose secrets, raw connection strings, API keys, or document content.
 
 ### `POST /api/chat/messages`
 
@@ -272,6 +295,8 @@ Successful response:
 ```
 
 The answer endpoint retrieves Qdrant context when the request mode is `qdrant` or `hybrid`. For `postgres`, it answers from the supplied Postgres evidence only.
+
+Q&A citations are practical MVP citations. They should identify whether the evidence came from Postgres or Qdrant, include a document title or source ID when available, include a short snippet, and preserve enough IDs for follow-up audit. Full audit-grade navigation is deferred.
 
 ## MVP Processing Request
 

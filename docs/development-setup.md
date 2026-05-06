@@ -11,12 +11,13 @@ Revenue Brains currently has the LangGraph agent and RAG pipeline:
 - Python LangGraph ingestion graph behind `POST /documents/process` for TXT, Markdown, text-based PDF, and DOCX files.
 - Python LangGraph Q&A graph behind `POST /qa/plan` and `POST /qa/answer`.
 - LangChain structured extraction, OpenAI embeddings, and Qdrant vector storage/retrieval.
+- Dependency-aware web health checks for the web process, Postgres, Python agent, Qdrant, and the configured Qdrant collection.
 - DB-only Docker Compose infrastructure for local Postgres and Qdrant.
 - Ignored private local upload storage at `./uploads`.
 
 Phase 2 Docker Compose intentionally runs only Postgres and Qdrant. The web and agent services run locally with `npm` and `uv`. Web/agent Compose services are deferred to later full orchestration work.
 
-The current implementation proves chat ingestion through synchronous extraction, Postgres persistence, Qdrant vector ingestion, and basic hybrid Q&A. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, and connector ingestion are not implemented yet.
+The current implementation proves chat ingestion through synchronous extraction, Postgres persistence, Qdrant vector ingestion, and basic hybrid Q&A. It is a local MVP prototype, not production software. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, tenant isolation, production deployment, and connector ingestion are not implemented yet.
 
 ## Required Tooling
 
@@ -118,6 +119,8 @@ Current local endpoints:
 - Qdrant gRPC: `localhost:6334`
 - Local uploads: `./uploads`
 
+The web health route returns `ok` only when the web process, Postgres, Python agent, Qdrant, and configured Qdrant collection checks pass. It returns `degraded` when one or more dependencies are unavailable and must not expose secrets or raw connection strings.
+
 ## Verification
 
 Web checks from the repository root:
@@ -181,6 +184,8 @@ Implemented:
 - Agent health endpoint at `GET /health`.
 - LangGraph document processing endpoint at `POST /documents/process` with parsing, classification, extraction, AI-native agent assessment, chunking, Qdrant vector ingestion, vector references, confidence, and structured errors.
 - LangGraph Q&A endpoints at `POST /qa/plan` and `POST /qa/answer`.
+- Practical Q&A citations in the chat workspace with source type, title or source ID, snippet, confidence, retrieval mode, and limitations where available.
+- Web tests for health degradation, chat attachment persistence with mocked Python extraction, and text-only Q&A citation metadata with mocked Python responses.
 - Python tests for agent health, parsing, classification, extraction validation, vector-reference behavior, structured document errors, and Q&A route contracts.
 - Local Postgres and Qdrant Compose infrastructure.
 - Environment template aligned with local ports.

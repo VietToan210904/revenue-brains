@@ -80,7 +80,7 @@ The Phase 4 implementation parses TXT, Markdown, text-based PDF, and DOCX files;
 
 ## Phase 5: LangGraph Qdrant Ingestion And RAG
 
-Status: current implementation.
+Status: current stabilized local MVP implementation.
 
 Goals:
 
@@ -94,16 +94,18 @@ Goals:
 
 Done means chat-attached documents become searchable vector memory, and employees can ask text-only chat questions that route to Postgres, Qdrant, or both.
 
-The current implementation keeps Python as the owner of Qdrant writes/retrieval and TypeScript as the owner of Postgres reads/writes.
+The current implementation keeps Python as the owner of Qdrant writes/retrieval and TypeScript as the owner of Postgres reads/writes. It also includes dependency-aware web health checks, practical Q&A citation display, and route-level tests with mocked Python responses.
+
+This phase is still local MVP work. Auth, OCR, CSV/XLSX extraction, webhook sync, connector ingestion, MCP tooling, tenant isolation, and production deployment are deferred.
 
 ## Phase 6: Hybrid Q&A
 
-Status: initial implementation included in Phase 5; future refinements remain.
+Status: basic implementation included in Phase 5; future refinements remain.
 
 Goals:
 
 - improve retrieval planning quality
-- add richer citation display and Q&A history views
+- add audit-grade citation navigation and Q&A history views
 - expand exact Postgres evidence planning beyond the current recent-record evidence set
 - add better empty-memory and unavailable-Qdrant handling
 - add integration tests across the web app, Python service, Postgres, and Qdrant

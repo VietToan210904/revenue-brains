@@ -43,7 +43,7 @@ The MVP should support:
 - structured record storage in Postgres
 - document chunk and extracted-fact ingestion into Qdrant
 - hybrid Q&A over Postgres and Qdrant
-- chat replies with processing status, summaries, confidence, and links to records
+- chat replies with processing status, summaries, confidence, practical citations, and links to records
 - dashboard/status views for conversations, processing jobs, extracted records, confidence, source references, and Q&A history
 - generic webhook sync after the core chat-ingestion-to-Q&A loop is working
 
@@ -130,7 +130,7 @@ For the MVP contract, TypeScript should send Python a file storage key and user 
 5. For hybrid answers, TypeScript passes structured Postgres evidence to Python.
 6. The answering agent returns a response with source citations where possible.
 
-Exact record questions should use Postgres, semantic document-context questions should use Qdrant, and mixed questions should use both. Answers that rely on document content should include citations whenever possible and should state when there is not enough evidence.
+Exact record questions should use Postgres, semantic document-context questions should use Qdrant, and mixed questions should use both. Answers that rely on document content should include practical citations whenever possible: source type, document title or source ID, a short snippet, and limitations when evidence is incomplete.
 
 Python should not connect directly to Postgres in the MVP. It can return a typed retrieval plan for exact records, and the TypeScript app should execute that plan through Prisma.
 
@@ -166,6 +166,7 @@ The first successful demo should show:
 - structured data saved in Postgres
 - document chunks or extracted facts saved in Qdrant
 - a cited answer produced by the Q&A agent
+- the web health endpoint showing Postgres, Python agent, Qdrant, and collection status
 - low-confidence behavior clearly represented
 
 ## Out Of Scope For MVP

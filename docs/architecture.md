@@ -8,6 +8,8 @@ TypeScript owns the product application: chat workspace, dashboard/status views,
 
 Postgres and Qdrant serve different purposes. Postgres stores exact structured records. Qdrant stores vector memory for semantic retrieval.
 
+The current implementation is a stabilized local Phase 5 MVP. It proves chat ingestion, extraction, vector memory, basic hybrid Q&A, practical citations, and dependency-aware health checks, but it is not production-ready.
+
 ## System Diagram
 
 ```txt
@@ -37,6 +39,7 @@ The Next.js app should handle:
 - calls to the Python agent service
 - webhook sync for high-confidence records once the deferred webhook milestone exists
 - Q&A user experience
+- dependency-aware health reporting for local Postgres, Python agent, Qdrant, and configured Qdrant collection
 
 The TypeScript app should not duplicate the Python agent logic. It should call the agent service through explicit APIs.
 
@@ -146,7 +149,7 @@ Chat question
   -> TypeScript sends structured Postgres evidence to Python when needed
   -> Python queries Qdrant for semantic context when needed
   -> Python combines retrieved evidence and generates answer
-  -> return citations and source references
+  -> return practical citations and source references
 ```
 
 Examples:
@@ -156,6 +159,8 @@ Examples:
 - "Which contract mentions annual renewal and what is its renewal date?" may use both.
 
 Python should not generate SQL or read Postgres directly in the MVP. Any Postgres-backed evidence passed to Python should be typed business data with record IDs and source references, not raw database access. The current TypeScript route passes recent extracted records as structured evidence for Postgres or hybrid plans.
+
+Current Q&A citations identify source type, document title or source ID, a short snippet, retrieval mode, confidence, and limitations where available. Audit-grade citation navigation is deferred.
 
 ## Processing Job States
 
