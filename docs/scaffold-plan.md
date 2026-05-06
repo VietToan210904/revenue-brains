@@ -2,39 +2,56 @@
 
 ## Purpose
 
-This document defines the target for the Phase 2 scaffold. It is not production runtime documentation. It is the checklist future implementation work should satisfy before moving on to chat ingestion, extraction, Qdrant ingestion, and Q&A features.
+This document describes the real Phase 2 scaffold. It is not a Phase 3 implementation plan.
 
-## Target Structure
+Phase 2 creates a runnable web scaffold, a runnable agent scaffold, and DB-only local infrastructure. It must not add upload handling, extraction, RAG behavior, auth, webhook sync, MCP tooling, or connector features.
+
+## Implemented Structure
 
 ```txt
 apps/
-  web/                  Next.js app, agent chat UI, dashboard/status views, TypeScript API routes
+  web/                  Next.js App Router scaffold, status page, and web health route
 services/
-  agent/                Python FastAPI service for parsing, extraction, Qdrant, and Q&A
-  mcp-server/           future TypeScript/Node MCP server for Python agent tools, not required for Phase 2
+  agent/                FastAPI scaffold, placeholder agent routes, uv.lock, and Python tests
+docs/
+  api/                  HTTP contracts between TypeScript and Python
+docker-compose.yml      local Postgres and Qdrant infrastructure only
+.env.example            checked-in non-secret local environment template
+package.json            root npm workspace scripts for the web app
+package-lock.json       npm lockfile
+```
+
+Future structure remains:
+
+```txt
+services/
+  mcp-server/           later TypeScript/Node MCP server, not Phase 2
 packages/
   shared/               optional shared API schemas or generated types
 tests/
   integration/          cross-service integration tests and safe synthetic fixtures
 assets/                 prompts, examples, safe sample documents, static assets
 config/                 checked-in non-secret config templates
-docs/
-  api/                  HTTP contracts between TypeScript and Python
 ```
 
 Use this structure instead of generic `frontend/` and `backend/` directories. The Next.js app has backend responsibilities, and the Python service is a separate intelligence service.
 
-Do not implement `services/mcp-server/` during Phase 2 unless the project explicitly changes scope. It is reserved for a later MCP milestone where the Python agent becomes an MCP client. When implemented, `services/mcp-server/` should be TypeScript/Node so it can preserve TypeScript-owned Postgres access, authorization, workspace scoping, and shared API/schema contracts.
+## Tooling
 
-## Initial Tooling Choices
+Implemented:
 
-- TypeScript app: Next.js, React, TypeScript, npm scripts.
-- Python service: FastAPI with `uv` for dependency management, pytest for tests, Ruff for linting/formatting, and a documented local server command.
-- Databases: Postgres for exact records, Qdrant for vector memory.
-- Local orchestration: Docker Compose.
-- API contracts: start in `docs/api/`, then move to OpenAPI or generated shared schemas when endpoints stabilize.
+- TypeScript app: Next.js, React, TypeScript, npm scripts, ESLint.
+- Python service: FastAPI, uv, pytest, Ruff, and tracked `services/agent/uv.lock`.
+- Databases: Postgres and Qdrant through DB-only Docker Compose.
+- API contracts: documented in `docs/api/README.md`.
 
-If a different package manager is selected during scaffold, update `README.md`, `AGENTS.md`, and `docs/development-setup.md` in the same change.
+Not implemented yet:
+
+- Prisma package/schema/migrations.
+- OpenAPI generation or shared generated schemas.
+- Docker Compose containers for web or agent.
+
+If a different package manager or service runner is selected later, update `README.md`, `AGENTS.md`, and `docs/development-setup.md` in the same change.
 
 ## Local Ports
 
@@ -43,102 +60,137 @@ Default local ports:
 - Next.js app: `3000`
 - Python agent service: `8000`
 - Postgres: `5432`
-- Qdrant: `6333`
+- Qdrant HTTP: `6333`
+- Qdrant gRPC: `6334`
 
-If any port changes, document it in `docs/development-setup.md` and `.env.example`.
+If any port changes, document it in `README.md`, `docs/development-setup.md`, and `.env.example`.
 
-## Required Services
+## Docker Compose Scope
 
-Docker Compose should define:
+Phase 2 Docker Compose defines only:
 
-- `web`: Next.js application.
-- `agent`: Python FastAPI service.
-- `postgres`: Postgres database.
-- `qdrant`: Qdrant vector database.
+- `postgres`: local structured database.
+- `qdrant`: local vector database.
 
-Docker Compose should also define a named attachment/upload volume, or mount an ignored local upload directory, into both `web` and `agent`. `uploads` is a storage mount, not a separate runtime service. Object-storage-compatible storage can replace the same storage-key contract in later deployments, but it is not required for the Phase 2 scaffold.
+Compose should not define `web` or `agent` services in Phase 2. The web app runs locally with `npm run dev`, and the Python agent service runs locally with `uv run uvicorn app.main:app --reload --port 8000`.
 
-The MVP file handoff contract is storage-key based. The TypeScript app stores chat attachments and sends Python a file storage key plus user instructions, not raw file bytes.
+Web and agent Compose services are deferred to a later full orchestration milestone if the project decides it needs one.
+
+The local upload path is `./uploads`, controlled by `UPLOAD_STORAGE_PATH`, and ignored by Git. Phase 2 Compose does not mount this path into web or agent containers because those containers are intentionally not part of the Phase 2 Compose file.
+
+The MVP file handoff contract remains storage-key based. When chat ingestion is implemented later, the TypeScript app should store chat attachments and send Python a file storage key plus user instructions, not raw file bytes.
 
 ## Environment Variables
 
-Scaffold should support these placeholders:
+The scaffold supports these placeholders:
 
 ```txt
-DATABASE_URL=
+APP_ENV=development
+PYTHON_AGENT_URL=http://localhost:8000
 OPENAI_API_KEY=
-QDRANT_URL=
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=revenue_brains
+POSTGRES_USER=revenue_brains
+POSTGRES_PASSWORD=change-me-local-only
+DATABASE_URL=postgresql://revenue_brains:change-me-local-only@localhost:5432/revenue_brains
+QDRANT_URL=http://localhost:6333
 QDRANT_API_KEY=
-PYTHON_AGENT_URL=
-UPLOAD_STORAGE_PATH=
+QDRANT_HTTP_PORT=6333
+QDRANT_GRPC_PORT=6334
+UPLOAD_STORAGE_PATH=./uploads
 WEBHOOK_URL=
 WEBHOOK_SECRET=
-APP_ENV=development
 ```
 
 Only placeholder values belong in committed files. Real values should stay in ignored local env files.
 
 ## Health Checks
 
-The scaffold should include:
+Implemented:
 
 - `GET /api/health` in the Next.js app.
 - `GET /health` in the Python agent service.
-- Docker Compose health checks for Postgres and Qdrant when practical.
+- Postgres Docker health check in Compose.
 
-Health endpoints should prove the service process is running. They should not require OpenAI, Postgres migrations, chat attachments, or Qdrant collections to exist.
+Not implemented:
 
-## Initial API Contract Placeholders
+- Web or agent Docker health checks, because Phase 2 has no web or agent Compose services.
+- Qdrant Docker health check.
 
-Use the endpoint contracts documented in `docs/api/README.md` before implementation details drift:
+Health endpoints prove the service process is running. They do not require OpenAI, Postgres migrations, chat attachments, or Qdrant collections to exist.
+
+## API Contract Placeholders
+
+Implemented in code:
 
 - `GET /api/health`
-- `POST /api/chat/messages`
-- `GET /api/chat/:conversationId`
-- `GET /api/jobs/:jobId`
 - `GET /health`
 - `POST /documents/process`
 - `POST /qa/plan`
 - `POST /qa/answer`
 
-The contracts should preserve the current ownership model:
+Documented for later Phase 3 implementation, but not implemented yet:
 
-- TypeScript owns Postgres reads and writes through Prisma.
+- `POST /api/chat/messages`
+- `GET /api/chat/:conversationId`
+- `GET /api/jobs/:jobId`
+
+The contracts preserve the ownership model:
+
+- TypeScript owns future Postgres reads and writes through Prisma.
 - Python owns parsing, validation, Qdrant writes, Qdrant retrieval, and answer generation.
 - Python does not connect directly to Postgres in the MVP.
 
-## Expected Commands
+## Commands
 
-Root-level scripts should eventually expose:
+Root npm commands:
 
 ```bash
+npm ci
 npm run dev
 npm test
 npm run lint
 npm run build
 ```
 
-The Python service should expose documented `uv` commands:
+Python service commands from `services/agent`:
 
 ```bash
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
 uv run pytest
 uv run ruff check
-uv run ruff format
+uv run ruff format --check
 ```
 
-## Done Checklist
+Infrastructure commands from the root:
 
-Phase 2 is done when:
+```bash
+docker compose up -d postgres qdrant
+docker compose config
+docker compose down
+```
 
-- The directories above exist.
-- The web app starts locally.
-- The Python agent service starts locally.
-- Postgres and Qdrant start through Docker Compose.
-- A private attachment/upload volume or ignored local upload path exists outside Git and is mounted into `web` and `agent`.
-- Health checks pass for the web app and agent service.
-- `.env.example` contains all required placeholders.
+## Phase 2 Status
+
+Done:
+
+- The web app scaffold exists and can start locally after `npm ci`.
+- The Python agent service scaffold exists and can start locally after `uv sync`.
+- `services/agent/uv.lock` is tracked.
+- Postgres and Qdrant are configured through DB-only Docker Compose.
+- Private attachment storage is represented by an ignored local upload path.
+- Health checks exist for the web app and agent service.
+- `.env.example` contains local placeholders.
 - `README.md` and `docs/development-setup.md` list the real commands.
-- `docs/api/` contains initial request and response contract placeholders.
+- `docs/api/` documents the current placeholder contracts.
 - No secrets, private documents, generated caches, or raw customer data are committed.
+
+Remaining scaffold gaps:
+
+- Add Prisma package/schema/migrations before implementing Postgres-backed chat ingestion.
+- Add real TypeScript tests when web behavior goes beyond the placeholder page and health route.
+- Add web/agent Compose containers only in a later full orchestration milestone, not Phase 2.
+
+Do not start Phase 3 behavior until these gaps are intentionally accepted or addressed.

@@ -131,7 +131,7 @@ Chat message with attachments
 
 ## File Handoff Contract
 
-For the MVP, the TypeScript app should store the chat message and original attachment first, then send the Python service a `fileStorageKey`, not raw file bytes. In local development, that key should point to a private upload volume mounted into both services. Later deployments can map the same contract to object-storage-compatible storage.
+For the MVP, the TypeScript app should store the chat message and original attachment first, then send the Python service a `fileStorageKey`, not raw file bytes. In local development, that key should resolve against an ignored private upload path shared by the local web and agent processes. Later deployments can map the same contract to object-storage-compatible storage.
 
 The processing request should include conversation ID, message ID, document ID, workspace ID, file storage key, original filename, content type, checksum, user instructions, and optional processing options. This keeps attachment limits, retry behavior, and audit metadata under the TypeScript app while letting Python read the file for parsing.
 

@@ -10,7 +10,7 @@ const conversations = [
   },
   {
     name: "Contract Q&A",
-    detail: "Pending agent service"
+    detail: "Pending Q&A pipeline"
   }
 ];
 
@@ -28,7 +28,7 @@ const messages = [
   {
     author: "Revenue Brains",
     tone: "agent",
-    body: "Upload, extraction, RAG, auth, webhook sync, and Python service code remain outside this scaffold."
+    body: "Upload, extraction, RAG, auth, webhook sync, and real processing remain outside this scaffold."
   }
 ];
 
@@ -51,7 +51,7 @@ const serviceStatuses = [
   {
     name: "Agent service",
     state: "Planned",
-    description: "No Python service in this phase"
+    description: "FastAPI scaffold exposes /health"
   }
 ];
 

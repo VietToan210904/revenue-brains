@@ -119,7 +119,7 @@ Unknown documents should receive common metadata and safe summarization only. Th
 
 Original chat attachments should be stored in an app-managed upload volume or ignored local upload directory, not committed to the repository. Later deployments can map the same storage-key contract to object-storage-compatible storage. Extracted fields, chunks, facts, chat replies, and Q&A citations should preserve source references such as page number, text span, bounding box when available, chunk ID, and related Postgres record ID.
 
-For the MVP contract, TypeScript should send Python a file storage key and user instructions rather than raw file bytes. Local development should use a private upload volume mounted into both services; later deployments can map the same storage-key contract to object storage.
+For the MVP contract, TypeScript should send Python a file storage key and user instructions rather than raw file bytes. Local development should resolve that key against an ignored private upload path shared by the local web and agent processes; later deployments can map the same storage-key contract to object storage.
 
 ### Hybrid Q&A
 
