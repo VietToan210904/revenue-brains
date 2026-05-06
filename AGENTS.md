@@ -100,7 +100,12 @@ Automation should be automatic by default, with validation gates:
 
 ## Build, Test, and Development Commands
 
-No package manager, build script, or test runner is configured yet. Before adding new tooling, document it in `README.md` and keep this file updated. Recommended command names once tooling exists:
+No package manager, build script, or test runner is configured yet. Docker Compose is configured only for local Postgres and Qdrant infrastructure:
+
+- `docker compose up -d postgres qdrant`: start local infrastructure services.
+- `docker compose down`: stop local infrastructure services while preserving named data volumes.
+
+Before adding new tooling, document it in `README.md` and keep this file updated. Recommended command names once app tooling exists:
 
 - `npm run dev` or equivalent: start the local development server.
 - `npm test`: run the full automated test suite.
