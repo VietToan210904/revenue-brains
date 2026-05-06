@@ -88,7 +88,7 @@ def parse_document(storage_key: str, original_filename: str, content_type: str) 
     else:
         raise DocumentProcessingError(
             "unsupported_format",
-            "This document format is not supported in Phase 4.",
+            "This document format is not supported by the current text-based parser.",
             status_code=415,
             details={"contentType": content_type, "filename": original_filename},
         )

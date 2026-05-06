@@ -223,6 +223,22 @@ h3 {
   white-space: pre-wrap;
 }
 
+.answer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.answer-meta span {
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: var(--blue-soft);
+  color: #1e4f9a;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
 .composer {
   display: grid;
   gap: 10px;
@@ -458,13 +474,17 @@ h3 {
 }
 
 .warning-list,
-.source-list {
+.source-list,
+.citation-list,
+.limitation-list {
   display: grid;
   gap: 6px;
 }
 
 .warning-list p,
-.source-list p {
+.source-list p,
+.citation-list p,
+.limitation-list p {
   margin: 0;
   font-size: 0.78rem;
 }
@@ -476,6 +496,27 @@ h3 {
 .source-list p {
   padding-left: 8px;
   border-left: 3px solid var(--border-strong);
+}
+
+.citation-item {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfa;
+  color: var(--text);
+}
+
+.citation-item strong {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.limitation-list p {
+  color: #7a4d00;
 }
 
 .empty-state {

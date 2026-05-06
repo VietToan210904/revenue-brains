@@ -121,11 +121,11 @@ Postgres and Qdrant have different jobs. Postgres is the source of truth for exa
 
 ## Repository Status
 
-This repository currently contains the LangGraph agent and RAG milestone. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, and a Python FastAPI agent service.
+This repository currently contains the stabilized local Phase 5 LangGraph agent and RAG milestone. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, dependency-aware health checks, and a Python FastAPI agent service.
 
 The Python service now uses LangGraph for ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by the agent, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Text-only chat questions route through a Q&A planner that can use Postgres evidence, Qdrant retrieval, or both.
 
-It does not yet contain auth, webhook sync, MCP tooling, connector imports, OCR, CSV/XLSX extraction, or production workflows.
+This is still a local MVP prototype, not production software. It does not yet contain auth, webhook sync, MCP tooling, connector imports, OCR, CSV/XLSX extraction, production deployment workflows, or tenant isolation.
 
 Planned top-level structure:
 
@@ -165,7 +165,7 @@ docker compose up -d postgres qdrant
 Default local endpoints:
 
 - Web app: `http://localhost:3000`
-- Web health: `http://localhost:3000/api/health`
+- Web health: `http://localhost:3000/api/health` with Postgres, agent, Qdrant, and collection checks
 - Python agent service: `http://localhost:8000`
 - Python agent health: `http://localhost:8000/health`
 - Postgres: `localhost:5432`
@@ -215,7 +215,7 @@ python -m uv sync
 python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 8000
 ```
 
-Live extraction and RAG require `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, `QDRANT_URL`, and `QDRANT_COLLECTION` from `.env`. If a key was exposed in terminal/chat output, rotate it in the OpenAI dashboard and replace the local `.env` value. Automated Python tests use deterministic mocked model/vector behavior and do not call OpenAI or Qdrant.
+Live extraction and RAG require `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDDING_MODEL`, `QDRANT_URL`, and `QDRANT_COLLECTION` from `.env`. If a key was exposed in terminal/chat output, rotate it in the OpenAI dashboard and replace the local `.env` value. Automated Python tests use deterministic mocked model/vector behavior and do not call OpenAI or Qdrant. Web tests mock Python agent calls and validate the chat/Q&A persistence boundary without using private documents.
 
 Verify the Python agent service from `services/agent`:
 
