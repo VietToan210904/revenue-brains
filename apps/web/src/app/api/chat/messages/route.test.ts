@@ -3,35 +3,43 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   conversationCreate: vi.fn(),
   conversationFindFirst: vi.fn(),
-  conversationUpdate: vi.fn(),
   chatMessageCreate: vi.fn(),
+  chatMessageFindUniqueOrThrow: vi.fn(),
   documentCreate: vi.fn(),
   processingJobCreate: vi.fn(),
+  processingJobUpdateMany: vi.fn(),
   extractedRecordFindMany: vi.fn(),
+  agentRunCreate: vi.fn(),
+  agentRunUpdate: vi.fn(),
+  agentRunFindUniqueOrThrow: vi.fn(),
   getDefaultWorkspace: vi.fn(),
-  storeChatAttachment: vi.fn(),
-  persistExtractionResult: vi.fn(),
-  markExtractionFailed: vi.fn()
+  storeChatAttachment: vi.fn()
 }));
 
 vi.mock("@/lib/db", () => ({
   prisma: {
     conversation: {
       create: mocks.conversationCreate,
-      findFirst: mocks.conversationFindFirst,
-      update: mocks.conversationUpdate
+      findFirst: mocks.conversationFindFirst
     },
     chatMessage: {
-      create: mocks.chatMessageCreate
+      create: mocks.chatMessageCreate,
+      findUniqueOrThrow: mocks.chatMessageFindUniqueOrThrow
     },
     document: {
       create: mocks.documentCreate
     },
     processingJob: {
-      create: mocks.processingJobCreate
+      create: mocks.processingJobCreate,
+      updateMany: mocks.processingJobUpdateMany
     },
     extractedRecord: {
       findMany: mocks.extractedRecordFindMany
+    },
+    agentRun: {
+      create: mocks.agentRunCreate,
+      update: mocks.agentRunUpdate,
+      findUniqueOrThrow: mocks.agentRunFindUniqueOrThrow
     }
   }
 }));
@@ -42,11 +50,6 @@ vi.mock("@/lib/workspace", () => ({
 
 vi.mock("@/lib/uploads", () => ({
   storeChatAttachment: mocks.storeChatAttachment
-}));
-
-vi.mock("@/lib/extraction-persistence", () => ({
-  persistExtractionResult: mocks.persistExtractionResult,
-  markExtractionFailed: mocks.markExtractionFailed
 }));
 
 vi.mock("@/lib/local-env", () => ({
@@ -82,9 +85,31 @@ const assistantMessage = {
   workspaceId: workspace.id,
   conversationId: conversation.id,
   role: "ASSISTANT",
-  content: "Done.",
-  metadata: {},
+  content:
+    "The autonomous document team is working on this. I will update this message when the run finishes.",
+  metadata: {
+    agent: true,
+    pending: true
+  },
   createdAt: new Date().toISOString()
+};
+
+const agentRun = {
+  id: "agent_run_1",
+  workspaceId: workspace.id,
+  conversationId: conversation.id,
+  userMessageId: userMessage.id,
+  assistantMessageId: assistantMessage.id,
+  status: "RUNNING",
+  goal: userMessage.content,
+  detectedIntent: null,
+  automationDecision: null,
+  finalReply: null,
+  errorMessage: null,
+  steps: [],
+  artifacts: [],
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
 };
 
 const documentRecord = {
@@ -98,8 +123,8 @@ const documentRecord = {
   checksum: "sha256:test",
   sizeBytes: 42,
   userInstructions: null,
-  documentType: "INVOICE",
-  status: "EXTRACTED",
+  documentType: "UNKNOWN",
+  status: "ATTACHED",
   createdAt: new Date().toISOString()
 };
 
@@ -108,57 +133,10 @@ const processingJob = {
   workspaceId: workspace.id,
   conversationId: conversation.id,
   documentId: documentRecord.id,
-  status: "EXTRACTED",
-  stage: "extraction_completed",
+  status: "QUEUED",
+  stage: "agent_run_queued",
   errorMessage: null,
   createdAt: new Date().toISOString()
-};
-
-const extractionPayload = {
-  status: "extracted",
-  documentId: documentRecord.id,
-  documentType: "INVOICE",
-  title: "Invoice 1001",
-  commonFields: [],
-  typeSpecificFields: [],
-  summary: "Invoice from Acme.",
-  keyFacts: ["Total due is 1200 USD."],
-  tags: ["invoice"],
-  documentConfidence: 0.93,
-  fieldConfidences: {},
-  validation: {
-    status: "passed",
-    missingRequiredFields: [],
-    warnings: []
-  },
-  agentAssessment: {
-    status: "extracted",
-    validationStatus: "passed",
-    documentConfidence: 0.93,
-    reviewRequired: false,
-    reviewReasons: [],
-    missingFields: [],
-    uncertainFields: [],
-    automationDecision: "safe_to_save",
-    automationDecisionReason: "Evidence is sufficient."
-  },
-  sourceReferences: [],
-  vectorReferences: [
-    {
-      chunkId: "document_1:chunk:0",
-      qdrantCollection: "revenue_brains_documents",
-      qdrantPointId: "point_1",
-      chunkIndex: 0,
-      contentPreview: "Invoice from Acme.",
-      metadata: {
-        workspaceId: workspace.id,
-        documentId: documentRecord.id,
-        documentType: "INVOICE"
-      }
-    }
-  ],
-  chatReply: "Processed as Invoice with 93% confidence.",
-  processingImplemented: true
 };
 
 function makeRequest(formData: FormData) {
@@ -173,7 +151,6 @@ describe("POST /api/chat/messages", () => {
     mocks.getDefaultWorkspace.mockResolvedValue(workspace);
     mocks.conversationCreate.mockResolvedValue(conversation);
     mocks.conversationFindFirst.mockResolvedValue(conversation);
-    mocks.conversationUpdate.mockResolvedValue(conversation);
     mocks.chatMessageCreate.mockImplementation(({ data }) =>
       Promise.resolve({
         ...(data.role === "USER" ? userMessage : assistantMessage),
@@ -181,6 +158,7 @@ describe("POST /api/chat/messages", () => {
         id: data.role === "USER" ? userMessage.id : assistantMessage.id
       })
     );
+    mocks.chatMessageFindUniqueOrThrow.mockResolvedValue(assistantMessage);
     mocks.storeChatAttachment.mockResolvedValue({
       storageKey: documentRecord.storageKey,
       checksum: documentRecord.checksum,
@@ -188,70 +166,38 @@ describe("POST /api/chat/messages", () => {
       originalFilename: documentRecord.originalFilename,
       contentType: documentRecord.contentType
     });
-    mocks.documentCreate.mockResolvedValue({
-      ...documentRecord,
-      status: "ATTACHED"
-    });
-    mocks.processingJobCreate.mockResolvedValue({
-      ...processingJob,
-      status: "QUEUED",
-      stage: "queued"
-    });
-    mocks.persistExtractionResult.mockResolvedValue({
-      document: documentRecord,
-      job: processingJob,
-      extractedRecord: {
-        id: "record_1",
-        documentId: documentRecord.id,
-        vectorReferences: extractionPayload.vectorReferences
-      }
-    });
+    mocks.documentCreate.mockResolvedValue(documentRecord);
+    mocks.processingJobCreate.mockResolvedValue(processingJob);
+    mocks.processingJobUpdateMany.mockResolvedValue({ count: 1 });
     mocks.extractedRecordFindMany.mockResolvedValue([]);
+    mocks.agentRunCreate.mockResolvedValue({
+      ...agentRun,
+      status: "PENDING"
+    });
+    mocks.agentRunUpdate.mockResolvedValue(agentRun);
+    mocks.agentRunFindUniqueOrThrow.mockResolvedValue(agentRun);
     vi.stubEnv("PYTHON_AGENT_URL", "http://agent.local");
+    vi.stubEnv("AGENT_CALLBACK_BASE_URL", "http://web.local");
     vi.stubGlobal(
       "fetch",
-      vi.fn((url: string | URL) => {
+      vi.fn((url: string | URL, init?: RequestInit) => {
         const target = String(url);
 
-        if (target.endsWith("/documents/process")) {
-          return Promise.resolve(Response.json(extractionPayload));
-        }
+        if (target.endsWith("/agent/runs/start")) {
+          const requestBody = JSON.parse(String(init?.body)) as {
+            agentRunId: string;
+            attachments: unknown[];
+          };
 
-        if (target.endsWith("/qa/plan")) {
           return Promise.resolve(
-            Response.json({
-              status: "planned",
-              retrievalMode: "qdrant",
-              postgresQuery: {
-                intent: "semantic_lookup",
-                documentTypes: [],
-                recordLimit: 5
+            Response.json(
+              {
+                status: "accepted",
+                agentRunId: requestBody.agentRunId,
+                message: "Autonomous agent run started."
               },
-              qdrantQuery: "What did I upload?",
-              reasoning: "Semantic document context is needed."
-            })
-          );
-        }
-
-        if (target.endsWith("/qa/answer")) {
-          return Promise.resolve(
-            Response.json({
-              status: "answered",
-              answer: "The uploaded document is an invoice from Acme.",
-              retrievalMode: "qdrant",
-              citations: [
-                {
-                  sourceType: "qdrant",
-                  documentId: documentRecord.id,
-                  recordId: null,
-                  qdrantPointId: "point_1",
-                  title: "Invoice 1001",
-                  snippet: "Invoice from Acme."
-                }
-              ],
-              confidence: 0.88,
-              limitations: ["Only uploaded document memory was searched."]
-            })
+              { status: 202 }
+            )
           );
         }
 
@@ -266,7 +212,7 @@ describe("POST /api/chat/messages", () => {
     vi.clearAllMocks();
   });
 
-  it("persists attachment processing results and vector references from the Python agent", async () => {
+  it("starts an autonomous agent run with attachment metadata and storage keys", async () => {
     const formData = new FormData();
     formData.set("content", "Please process this invoice.");
     formData.append("files", new File(["# Invoice\nTotal: 1200 USD"], "invoice.md"));
@@ -274,50 +220,117 @@ describe("POST /api/chat/messages", () => {
     const response = await POST(makeRequest(formData));
     const body = await response.json();
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(202);
     expect(mocks.storeChatAttachment).toHaveBeenCalledOnce();
-    expect(mocks.persistExtractionResult).toHaveBeenCalledWith(
+    expect(mocks.agentRunCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        documentId: documentRecord.id,
-        extraction: expect.objectContaining({
-          vectorReferences: extractionPayload.vectorReferences
+        data: expect.objectContaining({
+          workspaceId: workspace.id,
+          conversationId: conversation.id,
+          userMessageId: userMessage.id,
+          assistantMessageId: assistantMessage.id,
+          status: "PENDING"
         })
       })
     );
-    expect(body.extractedRecords[0].vectorReferences).toHaveLength(1);
+    expect(mocks.agentRunUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: agentRun.id },
+        data: expect.objectContaining({ status: "RUNNING" })
+      })
+    );
+    expect(mocks.processingJobUpdateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: {
+            in: [processingJob.id]
+          }
+        },
+        data: expect.objectContaining({
+          status: "PROCESSING",
+          stage: "agent_run_started"
+        })
+      })
+    );
+    expect(body.extractedRecords).toEqual([]);
+    expect(body.agentRun.id).toBe(agentRun.id);
 
     const fetchCall = vi.mocked(fetch).mock.calls[0];
     const requestBody = JSON.parse(String(fetchCall[1]?.body));
+    expect(String(fetchCall[0])).toMatch(/\/agent\/runs\/start$/);
     expect(requestBody).toMatchObject({
+      agentRunId: agentRun.id,
+      workspaceId: workspace.id,
+      conversationId: conversation.id,
+      messageId: userMessage.id,
+      callbackBaseUrl: "http://localhost:3000"
+    });
+    expect(requestBody.attachments[0]).toMatchObject({
+      documentId: documentRecord.id,
       fileStorageKey: documentRecord.storageKey,
       checksum: documentRecord.checksum,
       originalFilename: documentRecord.originalFilename
     });
     expect(requestBody).not.toHaveProperty("fileBytes");
+    expect(requestBody.attachments[0]).not.toHaveProperty("fileBytes");
   });
 
-  it("persists Q&A answer metadata and citations for text-only chat", async () => {
+  it("starts a text-only autonomous Q&A run with recent Postgres evidence", async () => {
     const formData = new FormData();
     formData.set("content", "What did I upload?");
+    mocks.extractedRecordFindMany.mockResolvedValueOnce([
+      {
+        id: "record_1",
+        documentId: documentRecord.id,
+        documentType: "INVOICE",
+        title: "Invoice 1001",
+        summary: "Invoice from Acme.",
+        confidence: 0.9,
+        validationStatus: "PASSED",
+        document: {
+          id: documentRecord.id,
+          originalFilename: documentRecord.originalFilename,
+          documentType: "INVOICE",
+          status: "EXTRACTED",
+          createdAt: documentRecord.createdAt
+        },
+        fields: [],
+        sourceReferences: [],
+        vectorReferences: []
+      }
+    ]);
 
     const response = await POST(makeRequest(formData));
     const body = await response.json();
 
-    expect(response.status).toBe(201);
+    expect(response.status).toBe(202);
     expect(body.documents).toEqual([]);
+    expect(body.jobs).toEqual([]);
+    expect(mocks.processingJobUpdateMany).not.toHaveBeenCalled();
     expect(body.assistantMessage.metadata).toMatchObject({
-      qa: true,
-      retrievalMode: "qdrant",
-      confidence: 0.88,
-      citations: [
-        expect.objectContaining({
-          sourceType: "qdrant",
-          qdrantPointId: "point_1",
-          title: "Invoice 1001"
-        })
-      ],
-      limitations: ["Only uploaded document memory was searched."]
+      agent: true,
+      pending: true
     });
-    expect(mocks.extractedRecordFindMany).not.toHaveBeenCalled();
+
+    const fetchCall = vi.mocked(fetch).mock.calls[0];
+    const requestBody = JSON.parse(String(fetchCall[1]?.body));
+    expect(requestBody.attachments).toEqual([]);
+    expect(requestBody.postgresEvidence[0]).toMatchObject({
+      recordId: "record_1",
+      documentId: documentRecord.id,
+      title: "Invoice 1001"
+    });
+  });
+
+  it("rejects empty chat submissions before creating agent runs", async () => {
+    const formData = new FormData();
+
+    const response = await POST(makeRequest(formData));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.error).toBe("Send a message, attach at least one file, or do both.");
+    expect(mocks.agentRunCreate).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -2,14 +2,36 @@
 
 ## Summary
 
-Revenue Brains uses two agent responsibilities:
+Revenue Brains now uses a Python-owned autonomous agent team plus lower-level controlled tools:
 
-- an ingestion agent that turns chat-attached documents and employee instructions into structured records and vector memory
-- a Q&A agent that answers employee questions using TypeScript-supplied Postgres evidence and Python-owned Qdrant retrieval
+- a Manager Agent that receives the chat goal, creates a plan, delegates work, and decides when the run is complete
+- an Intake Agent that inspects attachment metadata, instructions, and parsing needs
+- an Extraction Agent that turns chat-attached documents into structured records and summaries
+- a Validation/Critic Agent that checks evidence support, confidence, review need, and automation safety from agent outputs
+- a Memory Agent that stores and retrieves Qdrant semantic memory
+- a Q&A Agent that answers employee questions using TypeScript-supplied Postgres evidence and Python-owned Qdrant retrieval
+- a Response Agent that writes the final employee-facing reply from verified outputs only
 
-Both responsibilities live in the Python agent service. The TypeScript app calls the service and persists the returned outputs.
+These responsibilities live in the Python agent service. The TypeScript app starts async runs, receives callbacks, and persists the returned outputs.
 
 The Python service does not connect directly to Postgres in the MVP. The TypeScript app owns exact Postgres reads and writes through Prisma.
+
+## Autonomous Team Responsibilities
+
+The autonomous team should:
+
+- receive every normal chat request from the TypeScript app through `POST /agent/runs/start`
+- inspect the user message, optional instructions, attachment metadata, and recent Postgres evidence
+- decide whether the request needs document ingestion, Q&A, both, clarification, or a safe unsupported response
+- delegate work across Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agents
+- call the ingestion graph and Q&A graph as controlled tools
+- emit progress events for a visible agent activity timeline
+- return a final reply, artifacts, citations, and automation decision through callback APIs
+- avoid connecting directly to Postgres or receiving raw database credentials
+
+The old `POST /agent/respond` supervisor remains as a compatibility endpoint. Phase 7 uses the async run endpoint as the primary chat path.
+
+The Response Agent must not discover new facts. It only communicates verified extraction results, Q&A answers, citations, limitations, review status, and next steps from other agents.
 
 ## Ingestion Agent Responsibilities
 
@@ -34,7 +56,8 @@ The current implementation parses and extracts synchronously, chunks parsed text
 ## Classification And Extraction Flow
 
 ```txt
-Chat-attached document + instructions
+Manager-selected document ingestion task
+  -> chat-attached document + instructions
   -> parse text
   -> detect language and basic metadata
   -> classify document type
@@ -103,22 +126,36 @@ The answering agent should not invent facts that are not supported by TypeScript
 
 ## Expected Processing Input
 
-The TypeScript app should send the Python agent a request containing:
+For normal chat work, the TypeScript app should send the Python autonomous team a request containing:
 
+- agent run ID
 - conversation ID
 - message ID
-- document ID
-- original file storage key in the private upload store
-- checksum recorded by the TypeScript app
-- original filename
-- content type
 - workspace or organization ID
+- user message
 - user instructions from the chat message
+- attachment metadata with document IDs, private storage keys, checksums, filenames, and content types
+- recent TypeScript-owned Postgres evidence when available
+- callback base URL and callback secret configured in the environment
 - optional processing options
+
+The lower-level document ingestion tool still receives a single-document processing request from the autonomous team or the compatibility supervisor.
 
 ## Expected Processing Output
 
-The Python agent should return:
+The Python autonomous team should emit and return:
+
+- detected intent
+- tool actions taken
+- ordered agent steps
+- run artifacts
+- automation decision
+- extractions when document ingestion ran
+- Q&A answer when the Q&A tool ran
+- final chat reply
+- limitations, citations, and structured errors where applicable
+
+The ingestion tool should return:
 
 - document type
 - common fields

@@ -2,12 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It currently contains the LangGraph ingestion and Q&A pipeline with Postgres persistence and Qdrant vector memory.
+This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It currently contains the autonomous LangGraph multi-agent team, LangGraph ingestion and Q&A tools, Postgres persistence, and Qdrant vector memory.
 
 Keep contributor-facing documentation at the repository root. Use a monorepo layout that keeps the TypeScript product app and Python agent service separate:
 
 - `apps/web/` for the Next.js chat workspace, dashboard/status views, APIs, Prisma schema, and TypeScript app tests.
-- `services/agent/` for the Python FastAPI service, LangGraph ingestion/Q&A graphs, document parsing/classification/extraction logic, Qdrant tools, and Python agent tests.
+- `services/agent/` for the Python FastAPI service, autonomous LangGraph team, ingestion/Q&A graphs, document parsing/classification/extraction logic, Qdrant tools, and Python agent tests.
 - `services/mcp-server/` for a future TypeScript/Node MCP server that exposes controlled tools to the Python agent. Do not add this in Phase 2.
 - `packages/shared/` for optional shared API schemas or generated types.
 - `docs/api/` for future HTTP API contracts between the TypeScript app and Python service.
@@ -47,13 +47,14 @@ Use TypeScript for the product surface:
 
 Use Python for the intelligence layer:
 
-- LangGraph ingestion and Q&A orchestration.
+- LangGraph autonomous agent team, supervisor compatibility endpoint, ingestion, and Q&A orchestration.
+- Agent run planning, delegation, progress callbacks, retry limits, critique, and final response composition.
 - Document parsing and text preparation.
 - Classification.
 - Information extraction.
 - AI-native validation, confidence, and review assessment.
 - Embeddings and Qdrant ingestion.
-- RAG retrieval and answer orchestration.
+- Manager intent decisions, tool routing, RAG retrieval, and answer orchestration.
 - Agent-specific tests and fixtures.
 
 Keep the boundary explicit. TypeScript should call the Python agent service through documented HTTP APIs rather than duplicating agent logic in the web app. TypeScript owns Postgres reads and writes through Prisma; Python should not connect directly to Postgres in the MVP. When the service is scaffolded, keep request and response contracts in `docs/api/` or generated shared schemas under `packages/shared/`.
@@ -125,7 +126,7 @@ Python agent commands from `services/agent/`:
 - `python -m uv run ruff check`: run Python linting.
 - `python -m uv run ruff format --check`: check Python formatting.
 
-Live extraction and RAG require `OPENAI_API_KEY`, may use `OPENAI_MODEL`, and use `OPENAI_EMBEDDING_MODEL`, `QDRANT_URL`, and `QDRANT_COLLECTION` from local ignored env files. Automated tests must use deterministic mocks or fixtures and must not call live OpenAI or Qdrant.
+Live extraction and RAG require `OPENAI_API_KEY`, may use `OPENAI_MODEL`, and use `OPENAI_EMBEDDING_MODEL`, `QDRANT_URL`, and `QDRANT_COLLECTION` from local ignored env files. Async agent runs also use `AGENT_CALLBACK_BASE_URL` and `AGENT_CALLBACK_SECRET` so Python can send progress, completion, and failure callbacks to TypeScript. Automated tests must use deterministic mocks or fixtures and must not call live OpenAI or Qdrant.
 
 Use the project’s configured scripts rather than ad hoc commands when available.
 

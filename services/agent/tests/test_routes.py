@@ -4,12 +4,16 @@ import httpx
 from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 
+import app.agents.autonomous_team_graph as autonomous_team_graph
 import app.agents.ingestion_graph as ingestion_graph
+import app.agents.supervisor_graph as supervisor_graph
 import app.extraction as extraction
+import app.routers.agent as agent_router
 import app.routers.qa as qa_router
 from app.extraction import EXTRACTION_JSON_SCHEMA, classify_document
 from app.main import create_app
 from app.schemas import (
+    DocumentProcessResponse,
     QaAnswerResponse,
     QaCitationPayload,
     QaPlanResponse,
@@ -293,6 +297,35 @@ def needs_review_payload() -> dict[str, object]:
             uncertain_fields=["effective_date"],
         ),
     }
+
+
+def document_process_response(document_id: str = "doc_123") -> DocumentProcessResponse:
+    payload = successful_invoice_payload()
+    return DocumentProcessResponse.model_validate(
+        {
+            "status": "extracted",
+            "documentId": document_id,
+            "documentType": payload["documentType"],
+            "title": payload["title"],
+            "commonFields": payload["commonFields"],
+            "typeSpecificFields": payload["typeSpecificFields"],
+            "summary": payload["summary"],
+            "keyFacts": payload["keyFacts"],
+            "tags": payload["tags"],
+            "documentConfidence": 0.93,
+            "fieldConfidences": {"invoice_number": 0.93},
+            "validation": {
+                "status": "passed",
+                "missingRequiredFields": [],
+                "warnings": [],
+            },
+            "agentAssessment": payload["agentAssessment"],
+            "sourceReferences": payload["sourceReferences"],
+            "vectorReferences": [],
+            "chatReply": "Processed as Invoice with 93% confidence.",
+            "processingImplemented": True,
+        }
+    )
 
 
 def malformed_assessment_payload() -> dict[str, object]:
@@ -953,3 +986,341 @@ def test_qa_answer_returns_cited_answer(monkeypatch) -> None:
     assert body["status"] == "answered"
     assert body["retrievalMode"] == "hybrid"
     assert body["citations"][0]["qdrantPointId"] == "point_123"
+
+
+def test_supervisor_routes_attachment_only_to_document_ingestion(monkeypatch) -> None:
+    def fake_ingestion(request):
+        assert request.document_id == "doc_123"
+        assert request.file_storage_key == "documents/invoice.md"
+        return document_process_response(request.document_id)
+
+    monkeypatch.setattr(supervisor_graph, "run_ingestion_graph", fake_ingestion)
+
+    response = client.post(
+        "/agent/respond",
+        json={
+            "workspaceId": "workspace_123",
+            "conversationId": "conv_123",
+            "messageId": "msg_123",
+            "userMessage": "Please process this invoice.",
+            "attachments": [
+                {
+                    "documentId": "doc_123",
+                    "fileStorageKey": "documents/invoice.md",
+                    "checksum": "sha256:placeholder",
+                    "originalFilename": "invoice.md",
+                    "contentType": "text/markdown",
+                }
+            ],
+            "postgresEvidence": [],
+            "processingOptions": {"supervisorMode": "heuristic"},
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["intent"] == "ingest_documents"
+    assert body["extractions"][0]["documentId"] == "doc_123"
+    assert [action["tool"] for action in body["toolActions"]] == [
+        "supervisor_planner",
+        "document_ingestion",
+    ]
+
+
+def test_supervisor_routes_text_question_to_qa(monkeypatch) -> None:
+    def fake_plan(request):
+        assert request.question == "What is the invoice total?"
+        return QaPlanResponse(
+            retrievalMode="hybrid",
+            postgresQuery={"intent": "invoice_total"},
+            qdrantQuery="What is the invoice total?",
+            reasoning="Exact fields and document context can both help.",
+        )
+
+    def fake_answer(request):
+        assert request.retrieval_mode == "hybrid"
+        assert request.postgres_evidence == [{"recordId": "record_123"}]
+        return QaAnswerResponse(
+            answer="The invoice total is 1250 USD.",
+            retrievalMode="hybrid",
+            citations=[
+                QaCitationPayload(
+                    sourceType="postgres",
+                    documentId="doc_123",
+                    recordId="record_123",
+                    title="Invoice INV-1001",
+                    snippet="total_amount: 1250 USD",
+                )
+            ],
+            confidence=0.91,
+            limitations=[],
+        )
+
+    monkeypatch.setattr(supervisor_graph, "run_qa_plan_graph", fake_plan)
+    monkeypatch.setattr(supervisor_graph, "run_qa_answer_graph", fake_answer)
+
+    response = client.post(
+        "/agent/respond",
+        json={
+            "workspaceId": "workspace_123",
+            "conversationId": "conv_123",
+            "messageId": "msg_123",
+            "userMessage": "What is the invoice total?",
+            "attachments": [],
+            "postgresEvidence": [{"recordId": "record_123"}],
+            "processingOptions": {"supervisorMode": "heuristic"},
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["intent"] == "answer_question"
+    assert body["qaAnswer"]["answer"] == "The invoice total is 1250 USD."
+    assert body["reply"] == "The invoice total is 1250 USD."
+
+
+def test_supervisor_routes_document_plus_question_to_ingest_and_answer(monkeypatch) -> None:
+    monkeypatch.setattr(
+        supervisor_graph,
+        "run_ingestion_graph",
+        lambda request: document_process_response(request.document_id),
+    )
+    monkeypatch.setattr(
+        supervisor_graph,
+        "run_qa_plan_graph",
+        lambda request: QaPlanResponse(
+            retrievalMode="hybrid",
+            postgresQuery={"intent": "due_date"},
+            qdrantQuery=request.question,
+            reasoning="The fresh extraction and vector memory can answer this.",
+        ),
+    )
+    monkeypatch.setattr(
+        supervisor_graph,
+        "run_qa_answer_graph",
+        lambda request: QaAnswerResponse(
+            answer="The invoice due date is May 30, 2026.",
+            retrievalMode="hybrid",
+            citations=[],
+            confidence=0.9,
+            limitations=[],
+        ),
+    )
+
+    response = client.post(
+        "/agent/respond",
+        json={
+            "workspaceId": "workspace_123",
+            "conversationId": "conv_123",
+            "messageId": "msg_123",
+            "userMessage": "Please process this invoice and tell me the due date.",
+            "attachments": [
+                {
+                    "documentId": "doc_123",
+                    "fileStorageKey": "documents/invoice.md",
+                    "checksum": "sha256:placeholder",
+                    "originalFilename": "invoice.md",
+                    "contentType": "text/markdown",
+                }
+            ],
+            "postgresEvidence": [],
+            "processingOptions": {"supervisorMode": "heuristic"},
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["intent"] == "ingest_and_answer"
+    assert body["extractions"]
+    assert body["qaAnswer"]["answer"] == "The invoice due date is May 30, 2026."
+    assert "Processed Invoice INV-1001 as INVOICE" in body["reply"]
+
+
+def test_supervisor_returns_clarification_for_ambiguous_request() -> None:
+    response = client.post(
+        "/agent/respond",
+        json={
+            "workspaceId": "workspace_123",
+            "conversationId": "conv_123",
+            "messageId": "msg_123",
+            "userMessage": "hi",
+            "attachments": [],
+            "postgresEvidence": [],
+            "processingOptions": {"supervisorMode": "heuristic"},
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["status"] == "needs_clarification"
+    assert body["intent"] == "clarify"
+    assert body["automationDecision"] == "needs_clarification"
+
+
+def test_supervisor_returns_safe_unsupported_response() -> None:
+    response = client.post(
+        "/agent/respond",
+        json={
+            "workspaceId": "workspace_123",
+            "conversationId": "conv_123",
+            "messageId": "msg_123",
+            "userMessage": "Sync this spreadsheet to Google Drive",
+            "attachments": [],
+            "postgresEvidence": [],
+            "processingOptions": {"supervisorMode": "heuristic"},
+        },
+    )
+
+    body = response.json()
+    assert response.status_code == 200
+    assert body["status"] == "unsupported"
+    assert body["intent"] == "unsupported"
+    assert body["automationDecision"] == "unsupported"
+    assert "outside" in body["reply"]
+
+
+def agent_run_start_payload(
+    *,
+    message: str = "Please process this invoice.",
+    attachments: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    return {
+        "agentRunId": "run_123",
+        "workspaceId": "workspace_123",
+        "conversationId": "conv_123",
+        "messageId": "msg_123",
+        "userMessage": message,
+        "userInstructions": "Keep payment terms visible.",
+        "attachments": attachments or [],
+        "postgresEvidence": [],
+        "callbackBaseUrl": "http://web.local",
+        "processingOptions": {"managerMode": "heuristic", "vectorMode": "disabled"},
+    }
+
+
+def invoice_attachment() -> dict[str, object]:
+    return {
+        "documentId": "doc_123",
+        "fileStorageKey": "documents/invoice.md",
+        "checksum": "sha256:placeholder",
+        "originalFilename": "invoice.md",
+        "contentType": "text/markdown",
+    }
+
+
+def test_agent_run_start_accepts_autonomous_background_run(monkeypatch) -> None:
+    captured = []
+
+    def fake_run(request):
+        captured.append(request.agent_run_id)
+
+    monkeypatch.setattr(agent_router, "run_autonomous_agent_team", fake_run)
+
+    response = client.post(
+        "/agent/runs/start",
+        json=agent_run_start_payload(attachments=[invoice_attachment()]),
+    )
+
+    body = response.json()
+    assert response.status_code == 202
+    assert body == {
+        "status": "accepted",
+        "agentRunId": "run_123",
+        "message": "Autonomous agent run started.",
+    }
+    assert captured == ["run_123"]
+
+
+def test_autonomous_team_delegates_attachment_only_request(monkeypatch) -> None:
+    events = []
+    completions = []
+
+    def fake_emit_step(**kwargs):
+        events.append(kwargs)
+
+    def fake_complete(**kwargs):
+        completions.append(kwargs["payload"])
+
+    def fake_ingestion(request):
+        assert request.document_id == "doc_123"
+        return document_process_response(request.document_id)
+
+    monkeypatch.setattr(autonomous_team_graph, "emit_agent_step", fake_emit_step)
+    monkeypatch.setattr(autonomous_team_graph, "complete_agent_run_callback", fake_complete)
+    monkeypatch.setattr(autonomous_team_graph, "run_ingestion_graph", fake_ingestion)
+
+    request = autonomous_team_graph.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(attachments=[invoice_attachment()])
+    )
+
+    autonomous_team_graph.run_autonomous_agent_team(request)
+
+    assert [event["agent_name"] for event in events] == [
+        "Manager Agent",
+        "Intake Agent",
+        "Extraction Agent",
+        "Validation Critic Agent",
+        "Memory Agent",
+        "Q&A Agent",
+        "Response Agent",
+    ]
+    assert completions[0]["intent"] == "ingest_documents"
+    assert completions[0]["automationDecision"] == "safe_to_save"
+    assert completions[0]["extractions"][0]["documentId"] == "doc_123"
+    assert "Processed as Invoice" in completions[0]["reply"]
+
+
+def test_autonomous_team_answers_text_question_from_qa_agent(monkeypatch) -> None:
+    events = []
+    completions = []
+
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "emit_agent_step",
+        lambda **kwargs: events.append(kwargs),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "complete_agent_run_callback",
+        lambda **kwargs: completions.append(kwargs["payload"]),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "run_qa_plan_graph",
+        lambda request: QaPlanResponse(
+            retrievalMode="hybrid",
+            postgresQuery={"intent": "invoice_total"},
+            qdrantQuery=request.question,
+            reasoning="Use exact fields and vector memory.",
+        ),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "run_qa_answer_graph",
+        lambda request: QaAnswerResponse(
+            answer="The invoice total is 1250 USD.",
+            retrievalMode="hybrid",
+            citations=[
+                QaCitationPayload(
+                    sourceType="postgres",
+                    documentId="doc_123",
+                    recordId="record_123",
+                    title="Invoice INV-1001",
+                    snippet="total_amount: 1250 USD",
+                )
+            ],
+            confidence=0.91,
+            limitations=[],
+        ),
+    )
+
+    request = autonomous_team_graph.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(message="What is the invoice total?")
+    )
+
+    autonomous_team_graph.run_autonomous_agent_team(request)
+
+    assert any(event["agent_name"] == "Q&A Agent" for event in events)
+    assert completions[0]["intent"] == "answer_question"
+    assert completions[0]["qaAnswer"]["answer"] == "The invoice total is 1250 USD."
+    assert completions[0]["reply"] == "The invoice total is 1250 USD."

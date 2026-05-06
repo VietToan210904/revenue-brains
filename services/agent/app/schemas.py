@@ -44,6 +44,20 @@ ValidationStatusValue = Literal["passed", "needs_review", "failed"]
 FieldTypeValue = Literal["STRING", "NUMBER", "DATE", "CURRENCY", "BOOLEAN", "JSON"]
 ExtractionStatusValue = Literal["extracted", "needs_review"]
 AutomationDecisionValue = Literal["safe_to_save", "save_for_review"]
+SupervisorIntentValue = Literal[
+    "ingest_documents",
+    "answer_question",
+    "ingest_and_answer",
+    "clarify",
+    "unsupported",
+]
+SupervisorStatusValue = Literal["completed", "needs_clarification", "unsupported"]
+SupervisorAutomationDecisionValue = Literal[
+    "safe_to_save",
+    "save_for_review",
+    "needs_clarification",
+    "unsupported",
+]
 
 
 class ExtractedFieldPayload(AgentBaseModel):
@@ -173,3 +187,65 @@ class QaAnswerResponse(AgentBaseModel):
     citations: list[QaCitationPayload] = Field(default_factory=list)
     confidence: float = Field(ge=0, le=1)
     limitations: list[str] = Field(default_factory=list)
+
+
+class AgentAttachmentPayload(AgentBaseModel):
+    document_id: str = Field(alias="documentId")
+    file_storage_key: str = Field(alias="fileStorageKey")
+    checksum: str
+    original_filename: str = Field(alias="originalFilename")
+    content_type: str = Field(alias="contentType")
+
+
+class AgentRespondRequest(AgentBaseModel):
+    workspace_id: str = Field(alias="workspaceId")
+    conversation_id: str = Field(alias="conversationId")
+    message_id: str = Field(alias="messageId")
+    user_message: str = Field(alias="userMessage")
+    user_instructions: str | None = Field(default=None, alias="userInstructions")
+    attachments: list[AgentAttachmentPayload] = Field(default_factory=list)
+    postgres_evidence: list[dict[str, Any]] = Field(default_factory=list, alias="postgresEvidence")
+    processing_options: dict[str, Any] = Field(default_factory=dict, alias="processingOptions")
+
+
+class SupervisorToolActionPayload(AgentBaseModel):
+    tool: Literal[
+        "supervisor_planner",
+        "document_ingestion",
+        "qa_plan",
+        "qa_answer",
+        "clarification",
+        "unsupported",
+    ]
+    status: Literal["completed", "failed", "skipped"]
+    summary: str
+
+
+class AgentRespondResponse(AgentBaseModel):
+    status: SupervisorStatusValue
+    intent: SupervisorIntentValue
+    tool_actions: list[SupervisorToolActionPayload] = Field(alias="toolActions")
+    extractions: list[DocumentProcessResponse] = Field(default_factory=list)
+    qa_answer: QaAnswerResponse | None = Field(default=None, alias="qaAnswer")
+    automation_decision: SupervisorAutomationDecisionValue = Field(alias="automationDecision")
+    reply: str
+    processing_implemented: Literal[True] = Field(default=True, alias="processingImplemented")
+
+
+class AgentRunStartRequest(AgentBaseModel):
+    agent_run_id: str = Field(alias="agentRunId")
+    workspace_id: str = Field(alias="workspaceId")
+    conversation_id: str = Field(alias="conversationId")
+    message_id: str = Field(alias="messageId")
+    user_message: str = Field(alias="userMessage")
+    user_instructions: str | None = Field(default=None, alias="userInstructions")
+    attachments: list[AgentAttachmentPayload] = Field(default_factory=list)
+    postgres_evidence: list[dict[str, Any]] = Field(default_factory=list, alias="postgresEvidence")
+    callback_base_url: str = Field(alias="callbackBaseUrl")
+    processing_options: dict[str, Any] = Field(default_factory=dict, alias="processingOptions")
+
+
+class AgentRunStartResponse(AgentBaseModel):
+    status: Literal["accepted"] = "accepted"
+    agent_run_id: str = Field(alias="agentRunId")
+    message: str

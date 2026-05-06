@@ -8,7 +8,7 @@ TypeScript owns the product application: chat workspace, dashboard/status views,
 
 Postgres and Qdrant serve different purposes. Postgres stores exact structured records. Qdrant stores vector memory for semantic retrieval.
 
-The current implementation is a stabilized local Phase 5 MVP. It proves chat ingestion, extraction, vector memory, basic hybrid Q&A, practical citations, and dependency-aware health checks, but it is not production-ready.
+The current implementation is a local Phase 7 MVP. Phase 5 proved chat ingestion, extraction, vector memory, basic hybrid Q&A, practical citations, and dependency-aware health checks. Phase 6 added a supervisor agent that decides which controlled tools to use for each chat request. Phase 7 adds async autonomous agent runs with a Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agent team. It is not production-ready.
 
 ## System Diagram
 
@@ -20,9 +20,13 @@ Employee
 Next.js chat workspace, dashboard views, and TypeScript API
    |-- Prisma exact records, jobs, audit state --> Postgres
    |
-   |-- HTTP processing, retrieval planning, answers --> Python FastAPI agent service
-                                                            |
-                                                            |-- Qdrant client for embeddings and retrieval --> Qdrant
+   |-- HTTP async agent run start --> Python FastAPI agent service
+                                      |
+                                      |-- autonomous multi-agent team plans, delegates, critiques, remembers, answers
+                                      |
+                                      |-- Qdrant client for embeddings and retrieval --> Qdrant
+   ^
+   |-- internal progress/completion/failure callbacks from Python
 ```
 
 ## Next.js App Role
@@ -34,6 +38,7 @@ The Next.js app should handle:
 - chat message and attachment handling
 - original file storage handoff
 - processing job creation and status display
+- async `AgentRun`, `AgentStep`, and `AgentArtifact` persistence
 - authenticated single-company workspace behavior
 - Postgres access through Prisma
 - calls to the Python agent service
@@ -50,6 +55,8 @@ The TypeScript app should own all Postgres reads and writes for the MVP: convers
 The Python FastAPI service should handle:
 
 - document text extraction and normalization
+- Manager intent decisions, multi-agent delegation, and controlled tool orchestration
+- autonomous multi-agent planning, delegation, critique, retry limits, and response composition
 - document classification
 - schema-guided information extraction
 - AI-native confidence, validation, and review assessment
@@ -118,11 +125,14 @@ Chat message with attachments
   -> store chat message and original files outside Git
   -> create document rows with storage keys, checksums, and user instructions
   -> create processing job
-  -> call Python agent over HTTP with conversation ID, message ID, document ID, storage key, and user instructions
-  -> parse text
-  -> classify document
-  -> extract fields guided by instructions
-  -> validate and score confidence with source references
+  -> create AgentRun and pending assistant message
+  -> call Python autonomous team over HTTP with message, attachment metadata, storage keys, callback URL, and user instructions
+  -> Manager Agent chooses document ingestion, Q&A, both, clarification, or unsupported response
+  -> Python emits agent step events to TypeScript internal callback endpoints
+  -> ingestion graph parses text
+  -> ingestion graph classifies document
+  -> ingestion graph extracts fields guided by instructions
+  -> ingestion graph validates and scores confidence with source references
   -> save records in Postgres
   -> embed chunks and facts in Qdrant
   -> store Qdrant vector references in Postgres
@@ -131,7 +141,26 @@ Chat message with attachments
   -> later webhook milestone may sync high-confidence records
 ```
 
-The current implementation follows this flow with LangGraph nodes for parsing, extraction, chunking, vector storage, and Q&A. Webhook sync remains deferred.
+The current implementation follows this flow with a LangGraph autonomous team over LangGraph ingestion and Q&A graphs. Webhook sync remains deferred.
+
+## Autonomous Agent Run Flow
+
+```txt
+POST /api/chat/messages
+  -> TypeScript stores user message, documents, jobs, pending assistant message, and AgentRun
+  -> Python POST /agent/runs/start returns 202 accepted
+  -> Manager Agent plans intent and delegates
+  -> Intake Agent inspects attachment metadata
+  -> Extraction Agent calls the ingestion graph when needed
+  -> Validation/Critic Agent checks quality and review need from agent outputs
+  -> Memory Agent confirms vector memory references from Qdrant ingestion
+  -> Q&A Agent answers when the request asks a question
+  -> Response Agent writes the final employee-facing message from verified outputs only
+  -> Python calls TypeScript events/complete/fail callbacks
+  -> UI polls GET /api/agent-runs/:runId and shows the timeline
+```
+
+The Response Agent is deliberately separate from the Q&A Agent. It should not discover new facts; it communicates verified extraction, Q&A, citation, limitation, and review outputs.
 
 ## File Handoff Contract
 
@@ -144,6 +173,8 @@ The processing request should include conversation ID, message ID, document ID, 
 ```txt
 Chat question
   -> TypeScript app receives message and conversation context
+  -> TypeScript sends recent Postgres evidence to the Python autonomous team
+  -> Manager Agent chooses the Q&A tool
   -> Python LangGraph Q&A planner returns a retrieval plan
   -> TypeScript queries Postgres through Prisma for exact facts when needed
   -> TypeScript sends structured Postgres evidence to Python when needed

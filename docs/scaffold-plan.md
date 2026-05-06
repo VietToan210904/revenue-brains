@@ -127,9 +127,15 @@ Implemented in code:
 
 - `GET /api/health`
 - `GET /health`
+- `POST /agent/runs/start`
+- `POST /agent/respond`
 - `POST /documents/process`
 - `POST /qa/plan`
 - `POST /qa/answer`
+- `GET /api/agent-runs/:runId`
+- `POST /api/internal/agent-runs/:runId/events`
+- `POST /api/internal/agent-runs/:runId/complete`
+- `POST /api/internal/agent-runs/:runId/fail`
 
 Implemented in later phases, but not part of the Phase 2 scaffold:
 
