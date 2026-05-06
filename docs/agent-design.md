@@ -21,13 +21,15 @@ The ingestion agent should:
 - extract common document metadata
 - extract type-specific fields for known revenue and finance documents
 - use employee instructions to guide extraction focus, tags, and processing context
-- validate required fields and formats
-- assign document-level and field-level confidence
+- assess extracted values, evidence quality, and review requirements
+- assign document-level and field-level confidence as an agent decision
 - produce normalized records for Postgres
 - produce chunks, extracted facts, and summaries for Qdrant
 - return errors in a structured format when processing fails
 
-The ingestion agent should be deterministic around output shape even when the AI model response is uncertain.
+The ingestion agent is implemented as a controlled LangGraph workflow. It is deterministic around output shape even when the AI model response is uncertain.
+
+The current implementation parses and extracts synchronously, chunks parsed text, embeds chunks with OpenAI embeddings, writes vector memory to Qdrant, and returns structured payloads plus vector references to TypeScript for Postgres persistence.
 
 ## Classification And Extraction Flow
 
@@ -41,6 +43,9 @@ Chat-attached document + instructions
   -> extract type-specific fields
   -> validate output
   -> score confidence
+  -> chunk text
+  -> embed chunks
+  -> upsert vectors into Qdrant
   -> prepare storage payloads
 ```
 
@@ -55,7 +60,7 @@ Supported MVP types:
 
 Common extraction should run for every document. Type-specific extraction should run only when the document type is known and has a supported schema.
 
-The authoritative per-type required fields are in `docs/product-spec.md`. Missing required fields should lower confidence and may produce `needs_review` or `failed` status depending on severity.
+The document field expectations in `docs/product-spec.md` are business guidance for the agent, not deterministic gates in Python. The agent should decide whether missing or uncertain fields lower confidence, require review, or make the result unusable.
 
 ## Supported Input Formats
 
@@ -63,7 +68,7 @@ The MVP parser should support text-based PDFs, DOCX, plain text, and Markdown. I
 
 ## Validation And Confidence
 
-The agent should validate:
+The agent should assess:
 
 - required fields for the detected document type
 - date formats
@@ -78,11 +83,7 @@ Confidence should be represented at two levels:
 - document-level confidence for the overall extraction
 - field-level confidence for important extracted values
 
-The first implementation can use simple thresholds:
-
-- high confidence: score `>= 0.85`, required fields present, validation passes, important fields have source references, eligible for automatic sync only after the generic webhook milestone exists
-- medium confidence: score `>= 0.60` and `< 0.85` or minor validation gaps, saved internally, visible in dashboard, not externally synced
-- low confidence: score `< 0.60`, unsupported values, missing critical fields, or severe validation failures, saved internally with warning or marked failed depending on severity
+The ingestion graph is AI-native: the agent returns an `agentAssessment` that decides extraction status, validation status, confidence, review requirement, review reasons, missing fields, uncertain fields, and automation safety. Python code validates the response shape and safe error behavior, but it should not cap confidence or apply deterministic business thresholds.
 
 ## RAG Answering Agent Responsibilities
 
@@ -131,6 +132,8 @@ The Python agent should return:
 - Qdrant vector references after Python-owned ingestion
 - chat reply content for the employee
 - structured errors if processing fails
+
+The current ingestion graph returns extraction fields, `agentAssessment`, validation details derived from that assessment, confidence, source references, Qdrant vector references, and chat reply.
 
 ## Expected Q&A Input
 

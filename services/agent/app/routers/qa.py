@@ -1,29 +1,50 @@
-from fastapi import APIRouter, status
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
-from app.schemas import PlaceholderResponse, QaAnswerRequest, QaPlanRequest
+from app.agents.qa_graph import run_qa_answer_graph, run_qa_plan_graph
+from app.errors import DocumentProcessingError
+from app.schemas import (
+    DocumentProcessErrorResponse,
+    QaAnswerRequest,
+    QaAnswerResponse,
+    QaPlanRequest,
+    QaPlanResponse,
+)
 
 router = APIRouter(prefix="/qa", tags=["qa"])
 
 
 @router.post(
     "/plan",
-    response_model=PlaceholderResponse,
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+    response_model=QaPlanResponse,
 )
-def plan_answer(_request: QaPlanRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(
-        endpoint="/qa/plan",
-        message="Q&A retrieval planning is intentionally not implemented yet.",
-    )
+def plan_answer(request: QaPlanRequest) -> QaPlanResponse | JSONResponse:
+    try:
+        return run_qa_plan_graph(request)
+    except DocumentProcessingError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            content=DocumentProcessErrorResponse(
+                code=error.code,
+                message=error.message,
+                details=error.details,
+            ).model_dump(by_alias=True),
+        )
 
 
 @router.post(
     "/answer",
-    response_model=PlaceholderResponse,
-    status_code=status.HTTP_501_NOT_IMPLEMENTED,
+    response_model=QaAnswerResponse,
 )
-def answer_question(_request: QaAnswerRequest) -> PlaceholderResponse:
-    return PlaceholderResponse(
-        endpoint="/qa/answer",
-        message="Q&A answer generation is intentionally not implemented yet.",
-    )
+def answer_question(request: QaAnswerRequest) -> QaAnswerResponse | JSONResponse:
+    try:
+        return run_qa_answer_graph(request)
+    except DocumentProcessingError as error:
+        return JSONResponse(
+            status_code=error.status_code,
+            content=DocumentProcessErrorResponse(
+                code=error.code,
+                message=error.message,
+                details=error.details,
+            ).model_dump(by_alias=True),
+        )

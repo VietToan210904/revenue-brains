@@ -1,6 +1,9 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 
 import { PrismaClient } from "@/generated/prisma/client";
+import { loadLocalEnv } from "@/lib/local-env";
+
+loadLocalEnv();
 
 const defaultDatabaseUrl =
   "postgresql://revenue_brains:change-me-local-only@localhost:5432/revenue_brains";

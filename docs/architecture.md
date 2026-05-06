@@ -49,8 +49,7 @@ The Python FastAPI service should handle:
 - document text extraction and normalization
 - document classification
 - schema-guided information extraction
-- confidence scoring
-- validation of extracted values
+- AI-native confidence, validation, and review assessment
 - document chunking
 - embedding generation
 - Qdrant ingestion
@@ -129,6 +128,8 @@ Chat message with attachments
   -> later webhook milestone may sync high-confidence records
 ```
 
+The current implementation follows this flow with LangGraph nodes for parsing, extraction, chunking, vector storage, and Q&A. Webhook sync remains deferred.
+
 ## File Handoff Contract
 
 For the MVP, the TypeScript app should store the chat message and original attachment first, then send the Python service a `fileStorageKey`, not raw file bytes. In local development, that key should resolve against an ignored private upload path shared by the local web and agent processes. Later deployments can map the same contract to object-storage-compatible storage.
@@ -140,10 +141,10 @@ The processing request should include conversation ID, message ID, document ID, 
 ```txt
 Chat question
   -> TypeScript app receives message and conversation context
-  -> Python returns retrieval plan or answers semantic-only questions
+  -> Python LangGraph Q&A planner returns a retrieval plan
   -> TypeScript queries Postgres through Prisma for exact facts when needed
-  -> Python queries Qdrant for semantic context when needed
   -> TypeScript sends structured Postgres evidence to Python when needed
+  -> Python queries Qdrant for semantic context when needed
   -> Python combines retrieved evidence and generates answer
   -> return citations and source references
 ```
@@ -154,7 +155,7 @@ Examples:
 - "What does the refund policy say?" should use Qdrant.
 - "Which contract mentions annual renewal and what is its renewal date?" may use both.
 
-Python should not generate SQL or read Postgres directly in the MVP. Any Postgres-backed evidence passed to Python should be typed business data with record IDs and source references, not raw database access.
+Python should not generate SQL or read Postgres directly in the MVP. Any Postgres-backed evidence passed to Python should be typed business data with record IDs and source references, not raw database access. The current TypeScript route passes recent extracted records as structured evidence for Postgres or hybrid plans.
 
 ## Processing Job States
 
@@ -172,13 +173,13 @@ Allowed processing states should be explicit:
 
 Retries should preserve the previous error, attempt count, timestamps, and last successful stage. Partial success should not erase saved records or vector references unless a later retry replaces them deliberately.
 
-## Confidence-Gated Automation
+## AI-Native Automation Gates
 
-Automation is automatic by default, but unsafe writes should be gated.
+Automation is automatic by default, but unsafe writes should be gated by the agent assessment.
 
-- High-confidence extraction: score `>= 0.85`, required fields present, validation passes, important fields have source references, save to Postgres, and allow webhook sync only after the generic webhook milestone exists.
-- Medium-confidence extraction: score `>= 0.60` and `< 0.85` or minor validation gaps, save internally, show status, and block webhook sync.
-- Low-confidence extraction: score `< 0.60`, unsupported values, missing critical fields, or severe validation failures, save internally with warnings or failed status, and block webhook sync.
-- Failed processing: preserve the error, allow retry, and do not sync.
+- The Python agent returns `agentAssessment` with extraction status, validation status, confidence, review requirement, review reasons, missing fields, uncertain fields, and automation decision.
+- TypeScript persists the agent's decision directly: `extracted` records are saved as extracted, `needs_review` records remain reviewable, and processing errors are marked failed.
+- Code validates technical shape, enums, and safe storage behavior, but it should not apply fixed business thresholds or cap confidence for unknown document types.
+- Failed processing preserves the error, allows retry, and does not sync.
 
-This keeps employees from manually filling fields during the normal workflow while protecting external systems from bad data.
+This keeps employees from manually filling fields during the normal workflow while leaving business judgment with the agent and protecting future external systems from records the agent marks reviewable.

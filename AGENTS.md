@@ -2,12 +2,12 @@
 
 ## Project Structure & Module Organization
 
-This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It currently contains the Phase 3 chat ingestion pipeline.
+This repository is the home for Revenue Brains, an AI-native document automation and company brain platform. It currently contains the LangGraph ingestion and Q&A pipeline with Postgres persistence and Qdrant vector memory.
 
 Keep contributor-facing documentation at the repository root. Use a monorepo layout that keeps the TypeScript product app and Python agent service separate:
 
 - `apps/web/` for the Next.js chat workspace, dashboard/status views, APIs, Prisma schema, and TypeScript app tests.
-- `services/agent/` for the Python FastAPI service, accepted/placeholder intelligence-service routes, and Python agent tests.
+- `services/agent/` for the Python FastAPI service, LangGraph ingestion/Q&A graphs, document parsing/classification/extraction logic, Qdrant tools, and Python agent tests.
 - `services/mcp-server/` for a future TypeScript/Node MCP server that exposes controlled tools to the Python agent. Do not add this in Phase 2.
 - `packages/shared/` for optional shared API schemas or generated types.
 - `docs/api/` for future HTTP API contracts between the TypeScript app and Python service.
@@ -47,10 +47,11 @@ Use TypeScript for the product surface:
 
 Use Python for the intelligence layer:
 
+- LangGraph ingestion and Q&A orchestration.
 - Document parsing and text preparation.
 - Classification.
 - Information extraction.
-- Validation and confidence scoring.
+- AI-native validation, confidence, and review assessment.
 - Embeddings and Qdrant ingestion.
 - RAG retrieval and answer orchestration.
 - Agent-specific tests and fixtures.
@@ -118,11 +119,13 @@ Web app commands from the repository root:
 
 Python agent commands from `services/agent/`:
 
-- `uv sync`: install Python agent dependencies.
-- `uv run uvicorn app.main:app --reload --port 8000`: start the FastAPI service locally.
-- `uv run pytest`: run Python agent tests.
-- `uv run ruff check`: run Python linting.
-- `uv run ruff format --check`: check Python formatting.
+- `python -m uv sync`: install Python agent dependencies.
+- `python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 8000`: start the FastAPI service locally.
+- `python -m uv run pytest`: run Python agent tests.
+- `python -m uv run ruff check`: run Python linting.
+- `python -m uv run ruff format --check`: check Python formatting.
+
+Live extraction and RAG require `OPENAI_API_KEY`, may use `OPENAI_MODEL`, and use `OPENAI_EMBEDDING_MODEL`, `QDRANT_URL`, and `QDRANT_COLLECTION` from local ignored env files. Automated tests must use deterministic mocks or fixtures and must not call live OpenAI or Qdrant.
 
 Use the project’s configured scripts rather than ad hoc commands when available.
 
@@ -139,7 +142,7 @@ Add tests alongside any substantive behavior. Keep TypeScript tests near `apps/w
 Expected future coverage:
 
 - TypeScript tests for chat message/attachment APIs, persistence, webhook sync, and dashboard/status behavior.
-- Python tests for classification, extraction validation, confidence scoring, embeddings, and RAG answering.
+- Python tests for classification, extraction validation, agent assessment, structured processing errors, LangGraph routing, embeddings, Qdrant vector references, and RAG answering.
 - Integration tests for chat attachment to processing to Postgres save to Qdrant ingestion.
 - Failure tests for unsupported documents, malformed extraction, low confidence, Qdrant failure, and webhook failure.
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document describes the real Phase 2 scaffold. It is not a Phase 3 implementation plan.
+This document describes the real Phase 2 scaffold. It is not a Phase 3 or Phase 4 implementation plan. The repository has since moved beyond this scaffold; use `docs/roadmap.md` for current milestone status.
 
 Phase 2 creates a runnable web scaffold, a runnable agent scaffold, and DB-only local infrastructure. It must not add upload handling, extraction, RAG behavior, auth, webhook sync, MCP tooling, or connector features.
 
@@ -45,7 +45,7 @@ Implemented:
 - Databases: Postgres and Qdrant through DB-only Docker Compose.
 - API contracts: documented in `docs/api/README.md`.
 
-Not implemented yet:
+Not implemented in Phase 2:
 
 - Prisma package/schema/migrations.
 - OpenAPI generation or shared generated schemas.
@@ -72,13 +72,13 @@ Phase 2 Docker Compose defines only:
 - `postgres`: local structured database.
 - `qdrant`: local vector database.
 
-Compose should not define `web` or `agent` services in Phase 2. The web app runs locally with `npm run dev`, and the Python agent service runs locally with `uv run uvicorn app.main:app --reload --port 8000`.
+Compose should not define `web` or `agent` services in Phase 2. The web app runs locally with `npm run dev`, and the Python agent service runs locally with `python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 8000`.
 
 Web and agent Compose services are deferred to a later full orchestration milestone if the project decides it needs one.
 
 The local upload path is `./uploads`, controlled by `UPLOAD_STORAGE_PATH`, and ignored by Git. Phase 2 Compose does not mount this path into web or agent containers because those containers are intentionally not part of the Phase 2 Compose file.
 
-The MVP file handoff contract remains storage-key based. When chat ingestion is implemented later, the TypeScript app should store chat attachments and send Python a file storage key plus user instructions, not raw file bytes.
+The MVP file handoff contract remains storage-key based. Later chat ingestion phases should store chat attachments and send Python a file storage key plus user instructions, not raw file bytes.
 
 ## Environment Variables
 
@@ -88,6 +88,7 @@ The scaffold supports these placeholders:
 APP_ENV=development
 PYTHON_AGENT_URL=http://localhost:8000
 OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4.1-mini
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=revenue_brains
@@ -130,7 +131,7 @@ Implemented in code:
 - `POST /qa/plan`
 - `POST /qa/answer`
 
-Documented for later Phase 3 implementation, but not implemented yet:
+Implemented in later phases, but not part of the Phase 2 scaffold:
 
 - `POST /api/chat/messages`
 - `GET /api/chat/:conversationId`
@@ -157,11 +158,11 @@ npm run build
 Python service commands from `services/agent`:
 
 ```bash
-uv sync
-uv run uvicorn app.main:app --reload --port 8000
-uv run pytest
-uv run ruff check
-uv run ruff format --check
+python -m uv sync
+python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 8000
+python -m uv run pytest
+python -m uv run ruff check
+python -m uv run ruff format --check
 ```
 
 Infrastructure commands from the root:
@@ -177,7 +178,7 @@ docker compose down
 Done:
 
 - The web app scaffold exists and can start locally after `npm ci`.
-- The Python agent service scaffold exists and can start locally after `uv sync`.
+- The Python agent service scaffold exists and can start locally after `python -m uv sync`.
 - `services/agent/uv.lock` is tracked.
 - Postgres and Qdrant are configured through DB-only Docker Compose.
 - Private attachment storage is represented by an ignored local upload path.
@@ -193,4 +194,4 @@ Remaining scaffold gaps:
 - Add real TypeScript tests when web behavior goes beyond the placeholder page and health route.
 - Add web/agent Compose containers only in a later full orchestration milestone, not Phase 2.
 
-Do not start Phase 3 behavior until these gaps are intentionally accepted or addressed.
+During Phase 2, do not start Phase 3 behavior until scaffold gaps are intentionally accepted or addressed.

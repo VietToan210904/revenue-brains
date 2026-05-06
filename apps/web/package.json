@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "test": "npm run lint",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate dev --name phase3_chat_ingestion",
+    "db:migrate": "prisma migrate dev --name langgraph_rag_vector_references",
     "db:studio": "prisma studio"
   },
   "dependencies": {
