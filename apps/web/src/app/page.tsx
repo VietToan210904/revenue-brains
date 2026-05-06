@@ -125,10 +125,19 @@ const initialMessages: ChatMessage[] = [
     id: "welcome",
     role: "ASSISTANT",
     content:
-      "Send a message with company documents attached. Phase 4 parses supported files, classifies the document, extracts structured fields, and saves reviewable results.",
+      "Send a message with company documents attached. Phase 5 extracts structured fields, stores vector memory, and answers questions from company context.",
     createdAt: new Date().toISOString()
   }
 ];
+
+function shortenText(value: string, limit = 160) {
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= limit) {
+    return cleaned;
+  }
+
+  return `${cleaned.slice(0, Math.max(limit - 3, 0)).trim()}...`;
+}
 
 function formatStatus(status: string) {
   return status
@@ -136,6 +145,10 @@ function formatStatus(status: string) {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatCitationSource(sourceType: string) {
+  return sourceType === "qdrant" ? "Qdrant" : "Postgres";
 }
 
 function formatFieldValue(field: ExtractedField) {
@@ -152,28 +165,32 @@ function formatFieldValue(field: ExtractedField) {
   }
 
   if (Array.isArray(field.valueJson)) {
-    return field.valueJson.slice(0, 3).join(", ");
+    return shortenText(field.valueJson.slice(0, 3).map(String).join(", "));
   }
 
   if (field.valueJson && typeof field.valueJson === "object") {
-    return JSON.stringify(field.valueJson);
+    return shortenText(JSON.stringify(field.valueJson), 180);
   }
 
   if (typeof field.valueJson === "string") {
     try {
       const parsed = JSON.parse(field.valueJson) as unknown;
       if (Array.isArray(parsed)) {
-        return parsed.slice(0, 3).join(", ");
+        return shortenText(parsed.slice(0, 3).map(String).join(", "));
       }
       if (parsed && typeof parsed === "object") {
-        return JSON.stringify(parsed);
+        return shortenText(JSON.stringify(parsed), 180);
       }
     } catch {
-      return field.valueJson;
+      return shortenText(field.valueJson, 180);
     }
   }
 
   return "Missing";
+}
+
+function hasFieldValue(field: ExtractedField) {
+  return formatFieldValue(field) !== "Missing";
 }
 
 function confidencePercent(value: number) {
@@ -337,7 +354,7 @@ export default function Home() {
             <p className="eyebrow">Agent chat</p>
             <h2 id="workspace-title">Company document intake</h2>
           </div>
-          <span className="status-pill">Phase 4</span>
+          <span className="status-pill">Phase 5</span>
         </header>
 
         <div className="message-stack" aria-label="Thread">
@@ -352,13 +369,44 @@ export default function Home() {
                 {message.role === "USER" ? "Employee" : "Revenue Brains"}
               </div>
               <p>{message.content}</p>
+              {message.metadata?.qa ? (
+                <div className="answer-meta">
+                  {message.metadata.retrievalMode ? (
+                    <span>{formatStatus(message.metadata.retrievalMode)}</span>
+                  ) : null}
+                  {typeof message.metadata.confidence === "number" ? (
+                    <span>{confidencePercent(message.metadata.confidence)} confidence</span>
+                  ) : null}
+                </div>
+              ) : null}
               {message.metadata?.citations?.length ? (
-                <div className="source-list">
+                <div className="citation-list">
                   {message.metadata.citations.slice(0, 3).map((citation, index) => (
-                    <p key={`${citation.sourceType}-${citation.documentId ?? citation.qdrantPointId ?? index}`}>
-                      {citation.title ?? citation.documentId ?? citation.qdrantPointId}:{" "}
-                      {citation.snippet ?? formatStatus(citation.sourceType)}
-                    </p>
+                    <div
+                      className="citation-item"
+                      key={`${citation.sourceType}-${citation.documentId ?? citation.qdrantPointId ?? index}`}
+                    >
+                      <strong>
+                        {formatCitationSource(citation.sourceType)}
+                        {citation.title ? ` · ${citation.title}` : ""}
+                      </strong>
+                      <p>
+                        {shortenText(
+                          citation.snippet ??
+                            citation.documentId ??
+                            citation.qdrantPointId ??
+                            "Citation source available.",
+                          180
+                        )}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {message.metadata?.limitations?.length ? (
+                <div className="limitation-list">
+                  {message.metadata.limitations.slice(0, 2).map((limitation) => (
+                    <p key={limitation}>{shortenText(limitation, 180)}</p>
                   ))}
                 </div>
               ) : null}
@@ -453,7 +501,11 @@ export default function Home() {
                 [];
               const uncertainWarnings =
                 assessment?.uncertainFields?.map((field) => `Uncertain field: ${field}`) ?? [];
-              const visibleFields = record?.fields.filter((field) => field.required).slice(0, 5) ?? [];
+              const importantFields =
+                record?.fields.filter((field) => field.required && hasFieldValue(field)) ?? [];
+              const fallbackFields =
+                record?.fields.filter((field) => !field.required && hasFieldValue(field)) ?? [];
+              const visibleFields = [...importantFields, ...fallbackFields].slice(0, 5);
 
               return (
                 <article className="status-row extraction-row" key={document.id}>
@@ -503,12 +555,15 @@ export default function Home() {
                           <div className="source-list">
                             {record.sourceReferences.slice(0, 2).map((reference) => (
                               <p key={reference.id}>
+                                Source evidence ·{" "}
                                 {reference.pageNumber ? `Page ${reference.pageNumber}: ` : ""}
                                 {reference.paragraphIndex
                                   ? `Paragraph ${reference.paragraphIndex}: `
                                   : ""}
                                 {reference.lineStart ? `Line ${reference.lineStart}: ` : ""}
-                                {reference.evidenceSnippet}
+                                {reference.evidenceSnippet
+                                  ? shortenText(reference.evidenceSnippet, 180)
+                                  : "Evidence reference saved."}
                               </p>
                             ))}
                           </div>
@@ -518,8 +573,8 @@ export default function Home() {
                           <div className="source-list">
                             {record.vectorReferences.slice(0, 2).map((reference) => (
                               <p key={reference.id}>
-                                Vector chunk {reference.chunkIndex + 1} in{" "}
-                                {reference.qdrantCollection}: {reference.contentPreview}
+                                Vector memory · Chunk {reference.chunkIndex + 1} ·{" "}
+                                {shortenText(reference.contentPreview, 180)}
                               </p>
                             ))}
                           </div>
