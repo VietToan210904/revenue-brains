@@ -2,6 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { loadLocalEnv } from "@/lib/local-env";
+
 export type StoredUpload = {
   storageKey: string;
   checksum: string;
@@ -13,6 +15,8 @@ export type StoredUpload = {
 const defaultUploadPath = "./uploads";
 
 function getUploadRoot() {
+  loadLocalEnv();
+
   const configuredPath = process.env.UPLOAD_STORAGE_PATH ?? defaultUploadPath;
   return path.isAbsolute(configuredPath)
     ? configuredPath

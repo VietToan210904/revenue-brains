@@ -29,11 +29,30 @@ export async function GET(_request: Request, context: RouteContext) {
       documents: {
         orderBy: {
           createdAt: "desc"
+        },
+        include: {
+          extractedRecord: {
+            include: {
+              fields: true,
+              sourceReferences: true,
+              vectorReferences: true
+            }
+          }
         }
       },
       jobs: {
         orderBy: {
           createdAt: "desc"
+        }
+      },
+      extractedRecords: {
+        orderBy: {
+          createdAt: "desc"
+        },
+        include: {
+          fields: true,
+          sourceReferences: true,
+          vectorReferences: true
         }
       }
     }

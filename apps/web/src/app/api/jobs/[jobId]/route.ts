@@ -21,7 +21,17 @@ export async function GET(_request: Request, context: RouteContext) {
       workspaceId: workspace.id
     },
     include: {
-      document: true
+      document: {
+        include: {
+          extractedRecord: {
+            include: {
+              fields: true,
+              sourceReferences: true,
+              vectorReferences: true
+            }
+          }
+        }
+      }
     }
   });
 
