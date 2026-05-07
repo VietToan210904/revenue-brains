@@ -1263,6 +1263,7 @@ def test_autonomous_team_delegates_attachment_only_request(monkeypatch) -> None:
         "Extraction Agent",
         "Validation Critic Agent",
         "Memory Agent",
+        "MCP Tool Agent",
         "Q&A Agent",
         "Response Agent",
     ]
@@ -1326,6 +1327,104 @@ def test_autonomous_team_answers_text_question_from_qa_agent(monkeypatch) -> Non
     assert completions[0]["intent"] == "answer_question"
     assert completions[0]["qaAnswer"]["answer"] == "The invoice total is 1250 USD."
     assert completions[0]["reply"] == "The invoice total is 1250 USD."
+
+
+def test_autonomous_team_logs_mcp_tool_calls_as_agent_steps(monkeypatch) -> None:
+    events = []
+    completions = []
+
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "emit_agent_step",
+        lambda **kwargs: events.append(kwargs),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "complete_agent_run_callback",
+        lambda **kwargs: completions.append(kwargs["payload"]),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "plan_mcp_tool_calls",
+        lambda **_kwargs: [
+            {
+                "tool": "search_extracted_records",
+                "arguments": {
+                    "workspaceId": "workspace_123",
+                    "query": "What is the invoice total?",
+                    "limit": 5,
+                },
+                "reason": "Q&A needs exact structured records from Postgres.",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "execute_mcp_tool_plan",
+        lambda _calls: [
+            {
+                "tool": "search_extracted_records",
+                "arguments": {
+                    "workspaceId": "workspace_123",
+                    "query": "What is the invoice total?",
+                    "limit": 5,
+                },
+                "reason": "Q&A needs exact structured records from Postgres.",
+                "status": "completed",
+                "result": {
+                    "records": [
+                        {
+                            "id": "record_123",
+                            "title": "Invoice INV-1001",
+                        }
+                    ]
+                },
+                "summary": "search_extracted_records returned 1 extracted record(s).",
+            }
+        ],
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "run_qa_plan_graph",
+        lambda request: QaPlanResponse(
+            retrievalMode="postgres",
+            postgresQuery={"intent": "invoice_total"},
+            qdrantQuery=request.question,
+            reasoning="Use exact extracted records.",
+        ),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "run_qa_answer_graph",
+        lambda request: QaAnswerResponse(
+            answer=f"Used {len(request.postgres_evidence)} evidence item(s).",
+            retrievalMode="postgres",
+            citations=[],
+            confidence=0.9,
+            limitations=[],
+        ),
+    )
+
+    request = autonomous_team_graph.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(message="What is the invoice total?")
+    )
+
+    autonomous_team_graph.run_autonomous_agent_team(request)
+
+    assert any(
+        event["agent_name"] == "MCP Tool Agent"
+        and event["action"] == "call_mcp_tool:search_extracted_records"
+        and event["status"] == "completed"
+        for event in events
+    )
+    assert completions[0]["qaAnswer"]["answer"] == "Used 1 evidence item(s)."
+    assert completions[0]["artifacts"][0]["payload"]["mcpToolResults"] == [
+        {
+            "tool": "search_extracted_records",
+            "status": "completed",
+            "summary": "search_extracted_records returned 1 extracted record(s).",
+        }
+    ]
 
 
 def test_autonomous_team_processes_document_plus_question(monkeypatch) -> None:

@@ -15,6 +15,11 @@ from app.schemas import (
     QaPlanRequest,
 )
 from app.tools.callback_tools import complete_agent_run_callback, emit_agent_step
+from app.tools.mcp_tools import (
+    execute_mcp_tool_plan,
+    mcp_results_to_postgres_evidence,
+    plan_mcp_tool_calls,
+)
 
 
 class AutonomousTeamState(TypedDict, total=False):
@@ -23,6 +28,8 @@ class AutonomousTeamState(TypedDict, total=False):
     plan: SupervisorPlan
     tool_actions: list[dict[str, str]]
     extractions: list[DocumentProcessResponse]
+    mcp_tool_results: list[dict[str, Any]]
+    mcp_postgres_evidence: list[dict[str, Any]]
     qa_answer: QaAnswerResponse
     automation_decision: str
     review_required: bool
@@ -267,6 +274,81 @@ def memory_agent_node(state: AutonomousTeamState) -> AutonomousTeamState:
     return {"sequence": sequence, "tool_actions": actions}
 
 
+def mcp_tool_agent_node(state: AutonomousTeamState) -> AutonomousTeamState:
+    request = state["request"]
+    plan = state["plan"]
+    question = plan.question or request.user_message
+    planned_calls = plan_mcp_tool_calls(
+        workspace_id=request.workspace_id,
+        intent=plan.intent,
+        question=question,
+        attachments=request.attachments,
+        agent_run_id=request.agent_run_id,
+    )
+
+    if not planned_calls:
+        sequence = emit_step_from_state(
+            state,
+            agent_name="MCP Tool Agent",
+            action="choose_and_call_mcp_tools",
+            status="skipped",
+            output_summary="No MCP tool calls were needed or MCP is disabled.",
+            metadata={
+                "intent": plan.intent,
+                "availableThroughMcp": False,
+            },
+        )
+        actions = [
+            *state.get("tool_actions", []),
+            {
+                "tool": "mcp_tool_agent",
+                "status": "skipped",
+                "summary": "No MCP tool calls were needed or MCP is disabled.",
+            },
+        ]
+        return {
+            "sequence": sequence,
+            "tool_actions": actions,
+            "mcp_tool_results": [],
+            "mcp_postgres_evidence": [],
+        }
+
+    results = execute_mcp_tool_plan(planned_calls)
+    sequence = state.get("sequence", 1)
+    for result in results:
+        sequence = emit_step_from_state(
+            {**state, "sequence": sequence},
+            agent_name="MCP Tool Agent",
+            action=f"call_mcp_tool:{result['tool']}",
+            status=result["status"],
+            input_summary=f"Reason: {result.get('reason')}",
+            output_summary=result["summary"],
+            metadata={
+                "tool": result["tool"],
+                "arguments": result["arguments"],
+            },
+        )
+
+    successful_count = sum(1 for result in results if result["status"] == "completed")
+    actions = [
+        *state.get("tool_actions", []),
+        {
+            "tool": "mcp_tool_agent",
+            "status": "completed" if successful_count else "failed",
+            "summary": (
+                f"Chose {len(planned_calls)} MCP tool(s); "
+                f"{successful_count} returned usable evidence."
+            ),
+        },
+    ]
+    return {
+        "sequence": sequence,
+        "tool_actions": actions,
+        "mcp_tool_results": results,
+        "mcp_postgres_evidence": mcp_results_to_postgres_evidence(results),
+    }
+
+
 def qa_agent_node(state: AutonomousTeamState) -> AutonomousTeamState:
     request = state["request"]
     plan = state["plan"]
@@ -299,6 +381,7 @@ def qa_agent_node(state: AutonomousTeamState) -> AutonomousTeamState:
     )
     postgres_evidence = [
         *request.postgres_evidence,
+        *state.get("mcp_postgres_evidence", []),
         *[extraction.model_dump(by_alias=True) for extraction in state.get("extractions", [])],
     ]
     answer = run_qa_answer_graph(
@@ -323,6 +406,7 @@ def qa_agent_node(state: AutonomousTeamState) -> AutonomousTeamState:
             "retrievalMode": answer.retrieval_mode,
             "citationCount": len(answer.citations),
             "limitations": answer.limitations,
+            "mcpEvidenceCount": len(state.get("mcp_postgres_evidence", [])),
         },
     )
     actions.append(
@@ -351,6 +435,7 @@ def response_agent_node(state: AutonomousTeamState) -> AutonomousTeamState:
             "usesVerifiedOutputsOnly": True,
             "hasQaAnswer": qa_answer is not None,
             "extractionCount": len(extractions),
+            "mcpToolResultCount": len(state.get("mcp_tool_results", [])),
         },
     )
     actions = [
@@ -371,6 +456,7 @@ def build_autonomous_team_graph():
     graph.add_node("extraction_agent", extraction_agent_node)
     graph.add_node("validation_critic_agent", validation_critic_agent_node)
     graph.add_node("memory_agent", memory_agent_node)
+    graph.add_node("mcp_tool_agent", mcp_tool_agent_node)
     graph.add_node("qa_agent", qa_agent_node)
     graph.add_node("response_agent", response_agent_node)
 
@@ -379,7 +465,8 @@ def build_autonomous_team_graph():
     graph.add_edge("intake_agent", "extraction_agent")
     graph.add_edge("extraction_agent", "validation_critic_agent")
     graph.add_edge("validation_critic_agent", "memory_agent")
-    graph.add_edge("memory_agent", "qa_agent")
+    graph.add_edge("memory_agent", "mcp_tool_agent")
+    graph.add_edge("mcp_tool_agent", "qa_agent")
     graph.add_edge("qa_agent", "response_agent")
     graph.add_edge("response_agent", END)
     return graph.compile()
@@ -508,11 +595,20 @@ def build_completion_payload(state: AutonomousTeamState) -> dict[str, Any]:
                         "Extraction Agent",
                         "Validation Critic Agent",
                         "Memory Agent",
+                        "MCP Tool Agent",
                         "Q&A Agent",
                         "Response Agent",
                     ],
                     "intent": plan.intent,
                     "reviewRequired": state.get("review_required", False),
+                    "mcpToolResults": [
+                        {
+                            "tool": result.get("tool"),
+                            "status": result.get("status"),
+                            "summary": result.get("summary"),
+                        }
+                        for result in state.get("mcp_tool_results", [])
+                    ],
                 },
             }
         ],
