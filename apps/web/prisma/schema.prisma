@@ -81,23 +81,31 @@ enum AgentArtifactType {
   RUN_METADATA
 }
 
+enum WebhookSyncStatus {
+  PENDING
+  DELIVERED
+  FAILED
+  SKIPPED
+}
+
 model Workspace {
-  id               String            @id @default(cuid())
-  name             String
-  slug             String            @unique
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  conversations    Conversation[]
-  messages         ChatMessage[]
-  documents        Document[]
-  jobs             ProcessingJob[]
-  extractedRecords ExtractedRecord[]
-  extractedFields  ExtractedField[]
-  sourceReferences SourceReference[]
-  vectorReferences VectorReference[]
-  agentRuns        AgentRun[]
-  agentSteps       AgentStep[]
-  agentArtifacts   AgentArtifact[]
+  id                  String               @id @default(cuid())
+  name                String
+  slug                String               @unique
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  conversations       Conversation[]
+  messages            ChatMessage[]
+  documents           Document[]
+  jobs                ProcessingJob[]
+  extractedRecords    ExtractedRecord[]
+  extractedFields     ExtractedField[]
+  sourceReferences    SourceReference[]
+  vectorReferences    VectorReference[]
+  agentRuns           AgentRun[]
+  agentSteps          AgentStep[]
+  agentArtifacts      AgentArtifact[]
+  webhookSyncAttempts WebhookSyncAttempt[]
 }
 
 model Conversation {
@@ -133,28 +141,29 @@ model ChatMessage {
 }
 
 model Document {
-  id               String            @id @default(cuid())
-  workspaceId      String
-  conversationId   String
-  messageId        String
-  originalFilename String
-  contentType      String
-  storageKey       String
-  checksum         String
-  sizeBytes        Int
-  userInstructions String?
-  documentType     DocumentType      @default(UNKNOWN)
-  status           DocumentStatus    @default(ATTACHED)
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  workspace        Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation     Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  message          ChatMessage       @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  jobs             ProcessingJob[]
-  extractedRecord  ExtractedRecord?
-  extractedFields  ExtractedField[]
-  sourceReferences SourceReference[]
-  vectorReferences VectorReference[]
+  id                  String               @id @default(cuid())
+  workspaceId         String
+  conversationId      String
+  messageId           String
+  originalFilename    String
+  contentType         String
+  storageKey          String
+  checksum            String
+  sizeBytes           Int
+  userInstructions    String?
+  documentType        DocumentType         @default(UNKNOWN)
+  status              DocumentStatus       @default(ATTACHED)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation        Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  message             ChatMessage          @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  jobs                ProcessingJob[]
+  extractedRecord     ExtractedRecord?
+  extractedFields     ExtractedField[]
+  sourceReferences    SourceReference[]
+  vectorReferences    VectorReference[]
+  webhookSyncAttempts WebhookSyncAttempt[]
 
   @@index([conversationId, createdAt])
   @@index([workspaceId, createdAt])
@@ -185,26 +194,27 @@ model ProcessingJob {
 }
 
 model ExtractedRecord {
-  id                String            @id @default(cuid())
-  workspaceId       String
-  conversationId    String
-  documentId        String            @unique
-  documentType      DocumentType
-  title             String
-  summary           String
-  keyFacts          Json
-  tags              Json
-  confidence        Float
-  validationStatus  ValidationStatus
-  normalizedPayload Json
-  createdAt         DateTime          @default(now())
-  updatedAt         DateTime          @updatedAt
-  workspace         Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation      Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  document          Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  fields            ExtractedField[]
-  sourceReferences  SourceReference[]
-  vectorReferences  VectorReference[]
+  id                  String               @id @default(cuid())
+  workspaceId         String
+  conversationId      String
+  documentId          String               @unique
+  documentType        DocumentType
+  title               String
+  summary             String
+  keyFacts            Json
+  tags                Json
+  confidence          Float
+  validationStatus    ValidationStatus
+  normalizedPayload   Json
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation        Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  document            Document             @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  fields              ExtractedField[]
+  sourceReferences    SourceReference[]
+  vectorReferences    VectorReference[]
+  webhookSyncAttempts WebhookSyncAttempt[]
 
   @@index([workspaceId, documentType])
   @@index([conversationId, createdAt])
@@ -285,27 +295,28 @@ model VectorReference {
 }
 
 model AgentRun {
-  id                 String          @id @default(cuid())
-  workspaceId        String
-  conversationId     String
-  userMessageId      String
-  assistantMessageId String
-  status             AgentRunStatus  @default(PENDING)
-  goal               String
-  detectedIntent     String?
-  automationDecision String?
-  finalReply         String?
-  errorMessage       String?
-  metadata           Json?
-  startedAt          DateTime?
-  completedAt        DateTime?
-  failedAt           DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  workspace          Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversation       Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  steps              AgentStep[]
-  artifacts          AgentArtifact[]
+  id                  String               @id @default(cuid())
+  workspaceId         String
+  conversationId      String
+  userMessageId       String
+  assistantMessageId  String
+  status              AgentRunStatus       @default(PENDING)
+  goal                String
+  detectedIntent      String?
+  automationDecision  String?
+  finalReply          String?
+  errorMessage        String?
+  metadata            Json?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  failedAt            DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  workspace           Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  conversation        Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  steps               AgentStep[]
+  artifacts           AgentArtifact[]
+  webhookSyncAttempts WebhookSyncAttempt[]
 
   @@index([workspaceId, status])
   @@index([conversationId, createdAt])
@@ -352,4 +363,35 @@ model AgentArtifact {
   @@index([documentId])
   @@index([jobId])
   @@index([extractedRecordId])
+}
+
+model WebhookSyncAttempt {
+  id                  String            @id @default(cuid())
+  workspaceId         String
+  agentRunId          String
+  documentId          String
+  extractedRecordId   String
+  eventType           String
+  status              WebhookSyncStatus @default(PENDING)
+  webhookUrl          String?
+  payload             Json
+  responseStatusCode  Int?
+  responseBodyPreview String?
+  errorMessage        String?
+  attemptedAt         DateTime?
+  deliveredAt         DateTime?
+  failedAt            DateTime?
+  skippedAt           DateTime?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+  workspace           Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentRun            AgentRun          @relation(fields: [agentRunId], references: [id], onDelete: Cascade)
+  document            Document          @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  extractedRecord     ExtractedRecord   @relation(fields: [extractedRecordId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
+  @@index([agentRunId, createdAt])
+  @@index([documentId, createdAt])
+  @@index([extractedRecordId, createdAt])
+  @@index([eventType])
 }

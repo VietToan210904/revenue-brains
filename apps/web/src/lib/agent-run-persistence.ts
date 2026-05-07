@@ -14,6 +14,7 @@ import {
   type PersistedExtraction,
   type PythonExtractionPayload
 } from "@/lib/extraction-persistence";
+import { syncExtractionWebhook } from "@/lib/webhook-sync";
 
 export type AgentRunAttachmentPayload = {
   documentId: string;
@@ -329,12 +330,26 @@ export async function completeAgentRun(runId: string, payload: AgentRunCompleteP
     })
   ]);
 
+  const webhookSyncAttempts = [];
+  for (const persisted of persistedRecords) {
+    const webhookSyncAttempt = await syncExtractionWebhook({
+      agentRunId: runId,
+      automationDecision: payload.automationDecision,
+      persisted
+    });
+
+    if (webhookSyncAttempt) {
+      webhookSyncAttempts.push(webhookSyncAttempt);
+    }
+  }
+
   return {
     run: updatedRun,
     assistantMessage,
     extractedRecords: persistedRecords.map((record) => record.extractedRecord),
     documents: updatedDocuments,
-    jobs: updatedJobs
+    jobs: updatedJobs,
+    webhookSyncAttempts
   };
 }
 
