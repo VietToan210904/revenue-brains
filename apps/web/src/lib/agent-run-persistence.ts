@@ -11,6 +11,7 @@ import { prisma } from "@/lib/db";
 import {
   markExtractionFailed,
   persistExtractionResult,
+  type PersistedExtraction,
   type PythonExtractionPayload
 } from "@/lib/extraction-persistence";
 
@@ -107,6 +108,14 @@ export function normalizeAgentStepStatus(status: AgentStepEventPayload["status"]
   return AgentStepStatus.COMPLETED;
 }
 
+function isFinalAgentRunStatus(status: AgentRunStatus) {
+  return (
+    status === AgentRunStatus.COMPLETED ||
+    status === AgentRunStatus.NEEDS_REVIEW ||
+    status === AgentRunStatus.FAILED
+  );
+}
+
 export async function persistAgentRunEvent(runId: string, payload: AgentStepEventPayload) {
   const run = await prisma.agentRun.findUniqueOrThrow({
     where: { id: runId }
@@ -120,6 +129,41 @@ export async function persistAgentRunEvent(runId: string, payload: AgentStepEven
     })) +
       1);
 
+  const stepWrite = prisma.agentStep.upsert({
+    where: {
+      agentRunId_sequence: {
+        agentRunId: runId,
+        sequence
+      }
+    },
+    update: {
+      agentName: payload.agentName,
+      action: payload.action,
+      status: normalizeAgentStepStatus(payload.status),
+      inputSummary: payload.inputSummary ?? null,
+      outputSummary: payload.outputSummary ?? null,
+      confidence: payload.confidence ?? null,
+      metadata: payload.metadata === undefined ? undefined : jsonValue(payload.metadata)
+    },
+    create: {
+      workspaceId: run.workspaceId,
+      agentRunId: runId,
+      sequence,
+      agentName: payload.agentName,
+      action: payload.action,
+      status: normalizeAgentStepStatus(payload.status),
+      inputSummary: payload.inputSummary ?? null,
+      outputSummary: payload.outputSummary ?? null,
+      confidence: payload.confidence ?? null,
+      metadata: payload.metadata === undefined ? undefined : jsonValue(payload.metadata)
+    }
+  });
+
+  if (isFinalAgentRunStatus(run.status)) {
+    const step = await stepWrite;
+    return { run, step };
+  }
+
   const [updatedRun, step] = await prisma.$transaction([
     prisma.agentRun.update({
       where: { id: runId },
@@ -128,35 +172,7 @@ export async function persistAgentRunEvent(runId: string, payload: AgentStepEven
         startedAt: run.startedAt ?? new Date()
       }
     }),
-    prisma.agentStep.upsert({
-      where: {
-        agentRunId_sequence: {
-          agentRunId: runId,
-          sequence
-        }
-      },
-      update: {
-        agentName: payload.agentName,
-        action: payload.action,
-        status: normalizeAgentStepStatus(payload.status),
-        inputSummary: payload.inputSummary ?? null,
-        outputSummary: payload.outputSummary ?? null,
-        confidence: payload.confidence ?? null,
-        metadata: payload.metadata === undefined ? undefined : jsonValue(payload.metadata)
-      },
-      create: {
-        workspaceId: run.workspaceId,
-        agentRunId: runId,
-        sequence,
-        agentName: payload.agentName,
-        action: payload.action,
-        status: normalizeAgentStepStatus(payload.status),
-        inputSummary: payload.inputSummary ?? null,
-        outputSummary: payload.outputSummary ?? null,
-        confidence: payload.confidence ?? null,
-        metadata: payload.metadata === undefined ? undefined : jsonValue(payload.metadata)
-      }
-    })
+    stepWrite
   ]);
 
   return { run: updatedRun, step };
@@ -185,7 +201,9 @@ export async function completeAgentRun(runId: string, payload: AgentRunCompleteP
   const extractionByDocumentId = new Map(
     payload.extractions.map((extraction) => [extraction.documentId, extraction])
   );
-  const persistedRecords = [];
+  const persistedRecords: PersistedExtraction[] = [];
+  const updatedDocuments = [];
+  const updatedJobs = [];
 
   for (const document of documents) {
     const job = jobByDocumentId.get(document.id);
@@ -195,15 +213,15 @@ export async function completeAgentRun(runId: string, payload: AgentRunCompleteP
 
     const extraction = extractionByDocumentId.get(document.id);
     if (!extraction) {
-      if (payload.extractions.length > 0) {
-        await markExtractionFailed({
-          documentId: document.id,
-          jobId: job.id,
-          agentEndpoint: "/agent/runs/start",
-          agentStatusCode: 200,
-          errorMessage: "Autonomous run did not return an extraction for this document."
-        });
-      }
+      const failed = await markExtractionFailed({
+        documentId: document.id,
+        jobId: job.id,
+        agentEndpoint: "/agent/runs/start",
+        agentStatusCode: 200,
+        errorMessage: "Autonomous run finished without an extraction for this document."
+      });
+      updatedDocuments.push(failed.document);
+      updatedJobs.push(failed.job);
       continue;
     }
 
@@ -217,6 +235,8 @@ export async function completeAgentRun(runId: string, payload: AgentRunCompleteP
       extraction
     });
     persistedRecords.push(persisted);
+    updatedDocuments.push(persisted.document);
+    updatedJobs.push(persisted.job);
   }
 
   for (const persisted of persistedRecords) {
@@ -313,8 +333,8 @@ export async function completeAgentRun(runId: string, payload: AgentRunCompleteP
     run: updatedRun,
     assistantMessage,
     extractedRecords: persistedRecords.map((record) => record.extractedRecord),
-    documents: persistedRecords.map((record) => record.document),
-    jobs: persistedRecords.map((record) => record.job)
+    documents: updatedDocuments,
+    jobs: updatedJobs
   };
 }
 
@@ -376,6 +396,8 @@ export async function failAgentRun(runId: string, payload: AgentRunFailPayload) 
           agent: true,
           pending: false,
           agentRunId: runId,
+          agentRunStatus: AgentRunStatus.FAILED,
+          automationDecision: "failed",
           failed: true,
           errorMessage: payload.errorMessage,
           failedAgent: payload.agentName ?? null

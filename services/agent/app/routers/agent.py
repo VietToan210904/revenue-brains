@@ -14,6 +14,27 @@ from app.schemas import (
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 
+SAFE_ERROR_DETAIL_KEYS = {
+    "callbackStatusCode",
+    "code",
+    "contentType",
+    "errorType",
+    "filename",
+    "format",
+    "qdrantCollection",
+    "statusCode",
+}
+
+
+def safe_agent_error_details(error: DocumentProcessingError) -> dict[str, object]:
+    safe_details: dict[str, object] = {"code": error.code}
+
+    for key, value in error.details.items():
+        if key in SAFE_ERROR_DETAIL_KEYS:
+            safe_details[key] = value
+
+    return safe_details
+
 
 @router.post(
     "/respond",
@@ -74,7 +95,7 @@ def run_autonomous_agent_team_safely(request: AgentRunStartRequest) -> None:
                 agent_run_id=request.agent_run_id,
                 error_message=error.message,
                 agent_name="Autonomous Agent Team",
-                metadata={"code": error.code, **error.details},
+                metadata=safe_agent_error_details(error),
             )
         except DocumentProcessingError:
             return

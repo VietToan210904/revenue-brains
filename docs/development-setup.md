@@ -2,7 +2,7 @@
 
 ## Summary
 
-Revenue Brains currently has the autonomous LangGraph multi-agent team plus the RAG pipeline:
+Revenue Brains currently has the Phase 7.1 stabilized autonomous LangGraph multi-agent team plus the RAG pipeline:
 
 - Next.js chat workspace in `apps/web`.
 - Prisma schema and migrations for Postgres-backed chat intake records plus extracted records, extracted fields, source references, and Qdrant vector references.
@@ -20,7 +20,7 @@ Revenue Brains currently has the autonomous LangGraph multi-agent team plus the 
 
 Phase 2 Docker Compose intentionally runs only Postgres and Qdrant. The web and agent services run locally with `npm` and `uv`. Web/agent Compose services are deferred to later full orchestration work.
 
-The current implementation proves chat ingestion through async autonomous agent runs, Postgres persistence, Qdrant vector ingestion, and basic hybrid Q&A. It is a local MVP prototype, not production software. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, tenant isolation, production deployment, and connector ingestion are not implemented yet.
+The current implementation proves chat ingestion through async autonomous agent runs, Postgres persistence, Qdrant vector ingestion, basic hybrid Q&A, safe callbacks, visible run timelines, and final success/review/failure states. It is a local MVP prototype, not production software. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, tenant isolation, production deployment, and connector ingestion are not implemented yet.
 
 ## Required Tooling
 
@@ -152,6 +152,17 @@ docker compose config
 docker compose ps
 ```
 
+Manual Phase 7.1 acceptance checklist:
+
+1. Start Postgres/Qdrant, the web app, and the Python agent.
+2. Upload a safe synthetic invoice or Markdown document in chat.
+3. Confirm the agent timeline progresses through multiple agents.
+4. Confirm extraction records and vector references appear in the status panel.
+5. Ask a question about the uploaded document.
+6. Confirm the answer includes citations or a clear limitation.
+7. Send an ambiguous message and confirm the agent asks for clarification.
+8. Simulate an agent failure and confirm the UI shows a safe failed state instead of a stuck running state.
+
 Stop infrastructure while preserving named volumes:
 
 ```bash
@@ -194,8 +205,8 @@ Implemented:
 - LangGraph document processing endpoint at `POST /documents/process` with parsing, classification, extraction, AI-native agent assessment, chunking, Qdrant vector ingestion, vector references, confidence, and structured errors.
 - LangGraph Q&A endpoints at `POST /qa/plan` and `POST /qa/answer`.
 - Practical Q&A citations in the chat workspace with source type, title or source ID, snippet, confidence, retrieval mode, and limitations where available.
-- Web tests for health degradation, chat attachment persistence with mocked Python extraction, and text-only Q&A citation metadata with mocked Python responses.
-- Python tests for agent health, parsing, classification, extraction validation, vector-reference behavior, structured document errors, and Q&A route contracts.
+- Web tests for health degradation, chat attachment persistence with mocked Python extraction, text-only Q&A citation metadata, and agent-run callback handling.
+- Python tests for agent health, parsing, classification, extraction validation, vector-reference behavior, structured document errors, Q&A route contracts, autonomous routing, review decisions, clarification, unsupported requests, and safe failure callbacks.
 - Local Postgres and Qdrant Compose infrastructure.
 - Environment template aligned with local ports.
 

@@ -8,7 +8,7 @@ TypeScript owns the product application: chat workspace, dashboard/status views,
 
 Postgres and Qdrant serve different purposes. Postgres stores exact structured records. Qdrant stores vector memory for semantic retrieval.
 
-The current implementation is a local Phase 7 MVP. Phase 5 proved chat ingestion, extraction, vector memory, basic hybrid Q&A, practical citations, and dependency-aware health checks. Phase 6 added a supervisor agent that decides which controlled tools to use for each chat request. Phase 7 adds async autonomous agent runs with a Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agent team. It is not production-ready.
+The current implementation is a local Phase 7.1 MVP. Phase 5 proved chat ingestion, extraction, vector memory, basic hybrid Q&A, practical citations, and dependency-aware health checks. Phase 6 added a supervisor agent that decides which controlled tools to use for each chat request. Phase 7 added async autonomous agent runs with a Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agent team. Phase 7.1 stabilizes run final states, safe callbacks, test coverage, and the visible activity timeline. It is not production-ready.
 
 ## System Diagram
 
@@ -141,7 +141,7 @@ Chat message with attachments
   -> later webhook milestone may sync high-confidence records
 ```
 
-The current implementation follows this flow with a LangGraph autonomous team over LangGraph ingestion and Q&A graphs. Webhook sync remains deferred.
+The current implementation follows this flow with a LangGraph autonomous team over LangGraph ingestion and Q&A graphs. Phase 7.1 also ensures completed, review-needed, and failed runs settle into clear persisted states. Webhook sync remains deferred.
 
 ## Autonomous Agent Run Flow
 

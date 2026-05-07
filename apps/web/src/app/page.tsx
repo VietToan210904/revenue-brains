@@ -30,6 +30,7 @@ type ChatMessage = {
     pending?: boolean;
     agentRunId?: string;
     agentRunStatus?: "PENDING" | "RUNNING" | "COMPLETED" | "NEEDS_REVIEW" | "FAILED";
+    pollTimedOut?: boolean;
   } | null;
   createdAt: string;
 };
@@ -286,6 +287,7 @@ function withAgentRunTimeline(message: ChatMessage, agentRun: AgentRunRecord): C
       pending: agentRun.status === "PENDING" || agentRun.status === "RUNNING",
       agentRunId: agentRun.id,
       agentRunStatus: agentRun.status,
+      pollTimedOut: false,
       intent: message.metadata?.intent ?? agentRun.detectedIntent ?? undefined,
       automationDecision:
         message.metadata?.automationDecision ?? agentRun.automationDecision ?? undefined,
@@ -457,6 +459,23 @@ export default function Home() {
         continue;
       }
     }
+
+    setMessages((current) =>
+      current.map((message) =>
+        message.metadata?.agentRunId === runId
+          ? {
+              ...message,
+              content:
+                "The agent run is taking longer than expected. The saved run is still visible below; check health or retry if it does not finish.",
+              metadata: {
+                ...(message.metadata ?? {}),
+                pending: false,
+                pollTimedOut: true
+              }
+            }
+          : message
+      )
+    );
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -533,6 +552,11 @@ export default function Home() {
                   </span>
                 </div>
               ) : null}
+              {message.metadata?.pollTimedOut ? (
+                <div className="run-notice" role="status">
+                  The run did not finish inside this browser polling window.
+                </div>
+              ) : null}
               {message.metadata?.qa ? (
                 <div className="answer-meta">
                   {message.metadata.retrievalMode ? (
@@ -555,7 +579,7 @@ export default function Home() {
                   </div>
                   {message.metadata.toolActions?.length ? (
                     <ul>
-                      {message.metadata.toolActions.slice(0, 4).map((action, index) => (
+                      {message.metadata.toolActions.map((action, index) => (
                         <li
                           className={`agent-step-${action.status.toLowerCase()}`}
                           key={`${action.tool}-${index}`}

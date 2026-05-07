@@ -10,6 +10,8 @@ import app.agents.supervisor_graph as supervisor_graph
 import app.extraction as extraction
 import app.routers.agent as agent_router
 import app.routers.qa as qa_router
+import app.tools.callback_tools as callback_tools
+from app.errors import DocumentProcessingError
 from app.extraction import EXTRACTION_JSON_SCHEMA, classify_document
 from app.main import create_app
 from app.schemas import (
@@ -1324,3 +1326,210 @@ def test_autonomous_team_answers_text_question_from_qa_agent(monkeypatch) -> Non
     assert completions[0]["intent"] == "answer_question"
     assert completions[0]["qaAnswer"]["answer"] == "The invoice total is 1250 USD."
     assert completions[0]["reply"] == "The invoice total is 1250 USD."
+
+
+def test_autonomous_team_processes_document_plus_question(monkeypatch) -> None:
+    completions = []
+
+    monkeypatch.setattr(autonomous_team_graph, "emit_agent_step", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "complete_agent_run_callback",
+        lambda **kwargs: completions.append(kwargs["payload"]),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "run_ingestion_graph",
+        lambda request: document_process_response(request.document_id),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "run_qa_plan_graph",
+        lambda request: QaPlanResponse(
+            retrievalMode="hybrid",
+            postgresQuery={"intent": "due_date"},
+            qdrantQuery=request.question,
+            reasoning="The fresh extraction and document memory can answer this.",
+        ),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "run_qa_answer_graph",
+        lambda _request: QaAnswerResponse(
+            answer="The invoice due date is May 30, 2026.",
+            retrievalMode="hybrid",
+            citations=[],
+            confidence=0.9,
+            limitations=[],
+        ),
+    )
+
+    request = autonomous_team_graph.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(
+            message="Please process this invoice and tell me the due date.",
+            attachments=[invoice_attachment()],
+        )
+    )
+
+    autonomous_team_graph.run_autonomous_agent_team(request)
+
+    assert completions[0]["intent"] == "ingest_and_answer"
+    assert completions[0]["extractions"][0]["documentId"] == "doc_123"
+    assert completions[0]["qaAnswer"]["answer"] == "The invoice due date is May 30, 2026."
+    assert "Processed Invoice INV-1001 as INVOICE" in completions[0]["reply"]
+
+
+def test_autonomous_team_returns_clarification_without_tool_outputs(monkeypatch) -> None:
+    events = []
+    completions = []
+
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "emit_agent_step",
+        lambda **kwargs: events.append(kwargs),
+    )
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "complete_agent_run_callback",
+        lambda **kwargs: completions.append(kwargs["payload"]),
+    )
+
+    request = autonomous_team_graph.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(message="hue")
+    )
+
+    autonomous_team_graph.run_autonomous_agent_team(request)
+
+    assert completions[0]["intent"] == "clarify"
+    assert completions[0]["automationDecision"] == "needs_clarification"
+    assert completions[0]["extractions"] == []
+    assert completions[0]["qaAnswer"] is None
+    assert "What would you like" in completions[0]["reply"]
+    assert any(
+        event["agent_name"] == "Extraction Agent" and event["status"] == "skipped"
+        for event in events
+    )
+
+
+def test_autonomous_team_returns_unsupported_request_safely(monkeypatch) -> None:
+    completions = []
+
+    monkeypatch.setattr(autonomous_team_graph, "emit_agent_step", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "complete_agent_run_callback",
+        lambda **kwargs: completions.append(kwargs["payload"]),
+    )
+
+    request = autonomous_team_graph.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(message="Sync this spreadsheet to Google Drive")
+    )
+
+    autonomous_team_graph.run_autonomous_agent_team(request)
+
+    assert completions[0]["intent"] == "unsupported"
+    assert completions[0]["automationDecision"] == "unsupported"
+    assert completions[0]["extractions"] == []
+    assert "outside" in completions[0]["reply"]
+
+
+def test_autonomous_team_critic_can_require_review(monkeypatch) -> None:
+    completions = []
+
+    def fake_needs_review_response(request):
+        payload = needs_review_payload()
+        return DocumentProcessResponse.model_validate(
+            {
+                "status": "needs_review",
+                "documentId": request.document_id,
+                "documentType": payload["documentType"],
+                "title": payload["title"],
+                "commonFields": payload["commonFields"],
+                "typeSpecificFields": payload["typeSpecificFields"],
+                "summary": payload["summary"],
+                "keyFacts": payload["keyFacts"],
+                "tags": payload["tags"],
+                "documentConfidence": 0.67,
+                "fieldConfidences": {"effective_date": 0.35},
+                "validation": {
+                    "status": "needs_review",
+                    "missingRequiredFields": ["effective_date"],
+                    "warnings": ["The effective date is unclear."],
+                },
+                "agentAssessment": payload["agentAssessment"],
+                "sourceReferences": payload["sourceReferences"],
+                "vectorReferences": [],
+                "chatReply": "Processed as Contract, but it needs review.",
+                "processingImplemented": True,
+            }
+        )
+
+    monkeypatch.setattr(autonomous_team_graph, "emit_agent_step", lambda **_kwargs: None)
+    monkeypatch.setattr(
+        autonomous_team_graph,
+        "complete_agent_run_callback",
+        lambda **kwargs: completions.append(kwargs["payload"]),
+    )
+    monkeypatch.setattr(autonomous_team_graph, "run_ingestion_graph", fake_needs_review_response)
+
+    request = autonomous_team_graph.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(attachments=[invoice_attachment()])
+    )
+
+    autonomous_team_graph.run_autonomous_agent_team(request)
+
+    assert completions[0]["status"] == "needs_review"
+    assert completions[0]["automationDecision"] == "save_for_review"
+    assert completions[0]["extractions"][0]["agentAssessment"]["reviewRequired"] is True
+
+
+def test_agent_run_failure_callback_omits_private_storage_keys(monkeypatch) -> None:
+    failures = []
+
+    def fake_run(_request):
+        raise DocumentProcessingError(
+            "missing_file",
+            "The uploaded document file was not found in private storage.",
+            status_code=404,
+            details={
+                "fileStorageKey": "documents/private-company-file.txt",
+                "filename": "private-company-file.txt",
+            },
+        )
+
+    monkeypatch.setattr(agent_router, "run_autonomous_agent_team", fake_run)
+    monkeypatch.setattr(
+        callback_tools,
+        "fail_agent_run_callback",
+        lambda **kwargs: failures.append(kwargs),
+    )
+
+    request = agent_router.AgentRunStartRequest.model_validate(
+        agent_run_start_payload(attachments=[invoice_attachment()])
+    )
+
+    agent_router.run_autonomous_agent_team_safely(request)
+
+    assert failures[0]["error_message"] == (
+        "The uploaded document file was not found in private storage."
+    )
+    assert failures[0]["metadata"]["code"] == "missing_file"
+    assert failures[0]["metadata"]["filename"] == "private-company-file.txt"
+    assert "fileStorageKey" not in failures[0]["metadata"]
+    assert "private-company-file.txt" not in failures[0]["error_message"]
+
+
+def test_synthetic_fixtures_cover_stabilization_examples() -> None:
+    fixture_dir = Path(__file__).parent / "fixtures"
+    examples = {
+        "invoice.md": "INVOICE",
+        "contract.md": "CONTRACT",
+        "knowledge.md": "KNOWLEDGE",
+        "ambiguous.txt": "UNKNOWN",
+    }
+
+    for filename, expected_type in examples.items():
+        text = (fixture_dir / filename).read_text(encoding="utf-8")
+        assert classify_document(text) == expected_type
+        assert "Anh Hoang Phuc" not in text
+        assert "OPENAI_API_KEY" not in text

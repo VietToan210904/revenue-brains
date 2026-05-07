@@ -123,7 +123,7 @@ Deferred Phase 6 refinements now move into Phase 7+ stabilization:
 
 ## Phase 7: Autonomous Multi-Agent Document Team
 
-Status: current local MVP implementation.
+Status: complete as the current local MVP foundation.
 
 Goals:
 
@@ -145,6 +145,30 @@ Deferred from Phase 7:
 - MCP tool layer
 - production queues/workers
 - auth, tenant isolation, OCR, CSV/XLSX, and webhook sync
+
+## Phase 7.1: Stabilization And Run Reliability
+
+Status: current stabilization milestone.
+
+Goals:
+
+- harden async agent runs so every run ends as `COMPLETED`, `NEEDS_REVIEW`, or `FAILED`
+- keep `POST /agent/runs/start` as the primary Python entrypoint
+- ensure Python failures call the TypeScript fail callback with safe error text
+- prevent late progress callbacks from reopening finished runs
+- show full agent activity, final automation decision, limitations, citations, and review reasons without dumping raw payloads
+- add safe synthetic fixtures and route-level tests for success, review, clarification, unsupported, and failure paths
+- document the current local MVP limitations before Phase 8 webhook sync
+
+Done means the autonomous local MVP is easier to debug and review: chat requests create runs, callbacks persist ordered steps, failures become visible final states, extracted/vector/Q&A artifacts are shown safely, and automated tests cover the public MVP contract.
+
+Deferred from Phase 7.1:
+
+- webhook sync
+- auth and tenant isolation
+- OCR and CSV/XLSX extraction
+- MCP and external connectors
+- production queues/workers and deployment hardening
 
 ## Phase 8: Webhook Sync
 

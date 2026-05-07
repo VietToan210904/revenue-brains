@@ -118,9 +118,9 @@ Postgres and Qdrant have different jobs. Postgres is the source of truth for exa
 
 ## Repository Status
 
-This repository currently contains the local Phase 7 autonomous multi-agent milestone on top of the stabilized Phase 5 LangGraph/RAG foundation and Phase 6 supervisor layer. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs/agent runs/agent steps/agent artifacts, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, dependency-aware health checks, and a Python FastAPI agent service.
+This repository currently contains the Phase 7.1 stabilized local MVP: the Phase 7 autonomous multi-agent milestone on top of the Phase 5 LangGraph/RAG foundation and Phase 6 supervisor layer. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs/agent runs/agent steps/agent artifacts, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, dependency-aware health checks, and a Python FastAPI agent service.
 
-The Python service now uses LangGraph for an autonomous document team plus lower-level ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by agents, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Chat messages create async agent runs, the Python team emits callback events, and the UI shows a multi-agent activity timeline while the run completes.
+The Python service now uses LangGraph for an autonomous document team plus lower-level ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by agents, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Chat messages create async agent runs, the Python team emits safe progress/completion/failure callbacks, and the UI shows a multi-agent activity timeline with clear final states while the run completes.
 
 This is still a local MVP prototype, not production software. It does not yet contain auth, webhook sync, MCP tooling, connector imports, OCR, CSV/XLSX extraction, production deployment workflows, or tenant isolation.
 
@@ -223,6 +223,15 @@ python -m uv run pytest
 python -m uv run ruff check
 python -m uv run ruff format --check
 ```
+
+Manual Phase 7.1 acceptance checklist:
+
+- Upload a safe synthetic invoice or Markdown document in chat.
+- Confirm the agent timeline shows Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response steps.
+- Confirm extraction records and vector references appear in the status panel.
+- Ask a question about the uploaded document and confirm the answer includes citations or a clear limitation.
+- Send an ambiguous message and confirm the agent asks for clarification.
+- Simulate or observe an agent failure and confirm the UI shows a safe failed state instead of staying stuck.
 
 Web and agent Docker Compose services are intentionally deferred to later full orchestration work. Phase 2 Compose runs Postgres and Qdrant only.
 

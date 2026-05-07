@@ -268,6 +268,17 @@ h3 {
   z-index: 1;
 }
 
+.run-notice {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #f2c16b;
+  border-radius: 8px;
+  background: #fff8e7;
+  color: #7a4c00;
+  font-size: 0.82rem;
+  font-weight: 750;
+}
+
 .processing-orb {
   display: inline-grid;
   grid-template-columns: repeat(3, 6px);
@@ -373,6 +384,32 @@ h3 {
 .agent-activity li.agent-step-pending {
   border-color: #9ccfc6;
   background: #f3faf7;
+}
+
+.agent-activity li.agent-step-completed {
+  border-color: #bfddd5;
+  background: #f7fbf8;
+}
+
+.agent-activity li.agent-step-skipped {
+  border-style: dashed;
+  background: #f6f7f4;
+  color: var(--text-muted);
+}
+
+.agent-activity li.agent-step-failed {
+  border-color: #fecdd3;
+  background: #fff1f2;
+}
+
+.agent-activity li.agent-step-failed span {
+  background: #ffe4e6;
+  color: #be123c;
+}
+
+.agent-activity li.agent-step-skipped span {
+  background: #e8ede8;
+  color: var(--text-muted);
 }
 
 .agent-activity li.agent-step-running::after,

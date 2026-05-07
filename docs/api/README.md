@@ -83,7 +83,9 @@ Python calls these TypeScript endpoints during async autonomous runs:
 - `POST /api/internal/agent-runs/:runId/complete`
 - `POST /api/internal/agent-runs/:runId/fail`
 
-Callbacks must include `x-agent-callback-secret` matching `AGENT_CALLBACK_SECRET`. Payloads should contain safe summaries, structured extraction results, Q&A answers, vector references, artifacts, and status metadata. They must not include API keys, raw database credentials, raw full document text, or unrestricted model traces.
+Callbacks must include `x-agent-callback-secret` matching `AGENT_CALLBACK_SECRET`. Payloads should contain safe summaries, structured extraction results, Q&A answers, vector references, artifacts, and status metadata. They must not include API keys, raw database credentials, raw full document text, raw storage paths, or unrestricted model traces.
+
+Phase 7.1 requires every async run to settle into a final state: `COMPLETED`, `NEEDS_REVIEW`, or `FAILED`. Late progress events may still be stored for audit, but they must not reopen a finished run. If Python fails during the autonomous team run, it should call the fail callback with safe error text and redacted metadata so the UI can stop polling and show a clear failure.
 
 ### `GET /api/chat/:conversationId`
 
@@ -110,7 +112,7 @@ Example response:
 
 ### `POST /agent/runs/start`
 
-Current status: implemented as the Phase 7 async autonomous multi-agent endpoint. This is the primary endpoint used by the web chat route. It receives the user message, attachment metadata/storage keys, optional instructions, callback base URL, and recent TypeScript-owned Postgres evidence. It starts a background autonomous team run and immediately returns `202 Accepted`.
+Current status: implemented as the Phase 7.1 stabilized async autonomous multi-agent endpoint. This is the primary endpoint used by the web chat route. It receives the user message, attachment metadata/storage keys, optional instructions, callback base URL, and recent TypeScript-owned Postgres evidence. It starts a background autonomous team run and immediately returns `202 Accepted`.
 
 Request shape:
 
