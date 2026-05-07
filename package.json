@@ -3,13 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "workspaces": [
-    "apps/*"
+    "apps/*",
+    "services/mcp-server"
   ],
   "scripts": {
     "dev": "npm run dev -w @revenue-brains/web",
+    "dev:mcp": "npm run dev -w @revenue-brains/mcp-server",
     "build": "npm run db:generate && npm run build -w @revenue-brains/web",
     "lint": "npm run db:generate && npm run lint -w @revenue-brains/web",
     "test": "npm run db:generate && npm run test -w @revenue-brains/web",
+    "test:mcp": "npm run test -w @revenue-brains/mcp-server",
+    "mcp:stdio": "npm run stdio -w @revenue-brains/mcp-server",
     "db:generate": "npm run db:generate -w @revenue-brains/web",
     "db:migrate": "npm run db:migrate -w @revenue-brains/web",
     "db:studio": "npm run db:studio -w @revenue-brains/web"
