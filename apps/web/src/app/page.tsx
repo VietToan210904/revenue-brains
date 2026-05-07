@@ -238,6 +238,28 @@ function confidencePercent(value: number) {
   return `${Math.round(value * 100)}%`;
 }
 
+function getProcessingText(message: ChatMessage) {
+  const actions = message.metadata?.toolActions ?? [];
+  const activeAction = actions
+    .slice()
+    .reverse()
+    .find((action) => ["PENDING", "RUNNING", "pending", "running"].includes(action.status));
+
+  if (activeAction) {
+    return `${formatStatus(activeAction.tool)} is ${formatStatus(activeAction.status).toLowerCase()}.`;
+  }
+
+  if (message.metadata?.agentRunStatus === "PENDING") {
+    return "Preparing the autonomous agent team.";
+  }
+
+  if (message.metadata?.agentRunStatus === "RUNNING") {
+    return "Agents are planning, using tools, and checking the result.";
+  }
+
+  return "Processing your request.";
+}
+
 function delay(milliseconds: number) {
   return new Promise((resolve) => {
     window.setTimeout(resolve, milliseconds);
@@ -496,6 +518,21 @@ export default function Home() {
                 {message.role === "USER" ? "Employee" : "Revenue Brains"}
               </div>
               <p>{message.content}</p>
+              {message.metadata?.pending ? (
+                <div className="processing-indicator" role="status" aria-live="polite">
+                  <span className="processing-orb" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span>{getProcessingText(message)}</span>
+                  <span className="typing-dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                </div>
+              ) : null}
               {message.metadata?.qa ? (
                 <div className="answer-meta">
                   {message.metadata.retrievalMode ? (
@@ -519,7 +556,10 @@ export default function Home() {
                   {message.metadata.toolActions?.length ? (
                     <ul>
                       {message.metadata.toolActions.slice(0, 4).map((action, index) => (
-                        <li key={`${action.tool}-${index}`}>
+                        <li
+                          className={`agent-step-${action.status.toLowerCase()}`}
+                          key={`${action.tool}-${index}`}
+                        >
                           <strong>{formatStatus(action.tool)}</strong>
                           <span>{formatStatus(action.status)}</span>
                           <p>{shortenText(action.summary, 180)}</p>
