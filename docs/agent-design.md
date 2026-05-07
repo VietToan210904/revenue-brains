@@ -9,6 +9,7 @@ Revenue Brains now uses a Python-owned autonomous agent team plus lower-level co
 - an Extraction Agent that turns chat-attached documents into structured records and summaries
 - a Validation/Critic Agent that checks evidence support, confidence, review need, and automation safety from agent outputs
 - a Memory Agent that stores and retrieves Qdrant semantic memory
+- an MCP Tool Agent that discovers controlled MCP tools, chooses relevant tool calls, and logs each call as an agent step
 - a Q&A Agent that answers employee questions using TypeScript-supplied Postgres evidence and Python-owned Qdrant retrieval
 - a Response Agent that writes the final employee-facing reply from verified outputs only
 
@@ -23,8 +24,9 @@ The autonomous team should:
 - receive every normal chat request from the TypeScript app through `POST /agent/runs/start`
 - inspect the user message, optional instructions, attachment metadata, and recent Postgres evidence
 - decide whether the request needs document ingestion, Q&A, both, clarification, or a safe unsupported response
-- delegate work across Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agents
+- delegate work across Manager, Intake, Extraction, Validation/Critic, Memory, MCP Tool, Q&A, and Response agents
 - call the ingestion graph and Q&A graph as controlled tools
+- call controlled Revenue Brains MCP tools for exact company data when useful
 - emit progress events for a visible agent activity timeline
 - return a final reply, artifacts, citations, and automation decision through callback APIs
 - avoid connecting directly to Postgres or receiving raw database credentials
@@ -32,6 +34,19 @@ The autonomous team should:
 The old `POST /agent/respond` supervisor remains as a compatibility endpoint. Phase 7 uses the async run endpoint as the primary chat path.
 
 The Response Agent must not discover new facts. It only communicates verified extraction results, Q&A answers, citations, limitations, review status, and next steps from other agents.
+
+## MCP Tool Agent Responsibilities
+
+The MCP Tool Agent should:
+
+- load the available MCP tool list when MCP is enabled
+- choose relevant business tools based on Manager intent, user question, attachment metadata, and current run ID
+- call tools such as `search_extracted_records`, `get_document_metadata`, `get_agent_run`, and `list_webhook_sync_attempts`
+- emit one `AgentStep` per MCP tool call with safe arguments, status, and output summary
+- pass successful MCP results to the Q&A Agent as exact Postgres evidence
+- never expose raw SQL, raw private uploads, secrets, raw embeddings, shell access, or unrestricted filesystem access
+
+The MCP server exposes the tool interface. The TypeScript app still executes Postgres-backed tool logic through Prisma-owned internal APIs, so Python remains a client of controlled tools rather than a database owner.
 
 ## Ingestion Agent Responsibilities
 
@@ -181,6 +196,7 @@ The TypeScript app should send:
 - workspace or organization ID
 - optional filters such as document type, date range, or document IDs
 - structured Postgres evidence when exact records are needed
+- MCP tool evidence when the MCP Tool Agent selected and called exact-record tools
 
 For exact-record or hybrid questions, the MVP should use a two-step exchange:
 

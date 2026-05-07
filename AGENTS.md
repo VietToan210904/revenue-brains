@@ -8,7 +8,7 @@ Keep contributor-facing documentation at the repository root. Use a monorepo lay
 
 - `apps/web/` for the Next.js chat workspace, dashboard/status views, APIs, Prisma schema, and TypeScript app tests.
 - `services/agent/` for the Python FastAPI service, autonomous LangGraph team, ingestion/Q&A graphs, document parsing/classification/extraction logic, Qdrant tools, and Python agent tests.
-- `services/mcp-server/` for a future TypeScript/Node MCP server that exposes controlled tools to the Python agent. Do not add this in Phase 2.
+- `services/mcp-server/` for the TypeScript/Node MCP server that exposes controlled tools to the Python agent and local MCP clients.
 - `packages/shared/` for optional shared API schemas or generated types.
 - `docs/api/` for future HTTP API contracts between the TypeScript app and Python service.
 - `tests/integration/` for cross-service tests and safe synthetic fixtures.
@@ -54,12 +54,12 @@ Use Python for the intelligence layer:
 - Information extraction.
 - AI-native validation, confidence, and review assessment.
 - Embeddings and Qdrant ingestion.
-- Manager intent decisions, tool routing, RAG retrieval, and answer orchestration.
+- Manager intent decisions, MCP tool choice, RAG retrieval, and answer orchestration.
 - Agent-specific tests and fixtures.
 
 Keep the boundary explicit. TypeScript should call the Python agent service through documented HTTP APIs rather than duplicating agent logic in the web app. TypeScript owns Postgres reads and writes through Prisma; Python should not connect directly to Postgres in the MVP. When the service is scaffolded, keep request and response contracts in `docs/api/` or generated shared schemas under `packages/shared/`.
 
-MCP is a future agent tool layer, not the MVP service boundary. If MCP is added later, the Python agent should act as an MCP client and call controlled tools exposed by a TypeScript/Node `services/mcp-server/`. Exact-record tools should call TypeScript-owned APIs or shared TypeScript data-access code. MCP should not hand raw database credentials to the Python agent or bypass auth, workspace scoping, Postgres ownership, Qdrant ownership, confidence gates, or audit logging.
+MCP is the controlled agent tool layer, not the main service boundary. The Python agent can act as an MCP client and call controlled tools exposed by the TypeScript/Node `services/mcp-server/`. The autonomous MCP Tool Agent should discover the tool list, choose relevant exact-record tools from run intent and context, log each MCP call as an `AgentStep`, and pass successful results to Q&A and Response agents as verified evidence. Exact-record tools should call TypeScript-owned APIs or shared TypeScript data-access code. MCP must not hand raw database credentials to the Python agent or bypass auth/token checks, workspace scoping, Postgres ownership, Qdrant ownership, confidence gates, or audit logging.
 
 ## Postgres and Qdrant Rules
 
@@ -111,6 +111,8 @@ Web app commands from the repository root:
 
 - `npm ci`: install locked web dependencies.
 - `npm run dev`: start the local Next.js development server.
+- `npm run dev:mcp`: start the local MCP HTTP server.
+- `npm run mcp:stdio`: start the local MCP server in stdio mode.
 - `npm run db:generate`: generate the Prisma client.
 - `npm run db:migrate`: apply local Prisma migrations.
 - `npm run db:studio`: inspect local Prisma data.
@@ -170,7 +172,7 @@ Until the end-to-end MVP pipeline is working, avoid:
 - multi-tenant SaaS billing
 - advanced role-based permissions
 - email, Google Drive, CRM, ERP, or accounting integrations
-- MCP write tools or broad external tool access before auth and audit logging are ready
+- arbitrary MCP write tools or broad external tool access before auth and audit logging are ready
 - production compliance workflows
 - complex admin schema builders
 - large analytics dashboards

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Revenue Brains can use Model Context Protocol (MCP) so the Python agent can call controlled tools through a standard tool interface.
+Revenue Brains uses Model Context Protocol (MCP) so the Python agent and local MCP clients can call controlled tools through a standard tool interface.
 
 In this project, the primary MCP use case is:
 
@@ -10,6 +10,7 @@ In this project, the primary MCP use case is:
 Python agent service as MCP client
   -> calls Revenue Brains MCP server tools
   -> tools read approved external systems, internal APIs, or business databases
+  -> MCP Tool Agent logs each tool call
   -> agent uses tool results during extraction, validation, and Q&A
 ```
 
@@ -26,7 +27,7 @@ Use MCP to expose tools the agent may need, such as:
 - call external systems later, such as CRM, ERP, accounting, Drive, or email tools
 - validate extracted values against approved reference data
 
-For the first implementation, keep MCP read-only. Write tools can come later after auth, audit logging, and review workflows are mature.
+The first implementation is broad but controlled. Most tools are read-only. Write tools are limited to safe actions that reuse existing product flows: trigger eligible webhook sync and request document reprocessing. Do not add raw SQL, shell, raw file access, or arbitrary write tools.
 
 ## Placement
 
@@ -34,10 +35,26 @@ Use a dedicated TypeScript/Node service:
 
 ```txt
 services/
-  mcp-server/           TypeScript/Node MCP server exposing controlled tools for the Python agent
+  mcp-server/           TypeScript/Node MCP server exposing controlled tools for the Python agent and local MCP clients
 ```
 
-The Python agent service should act as an MCP client when it needs tool access. The MCP server should be TypeScript/Node so it can reuse TypeScript-owned API contracts, authorization helpers, workspace scoping, and Prisma-backed access patterns without giving the Python agent raw database credentials.
+The Python agent service acts as an MCP client when it needs tool access. The MCP server is TypeScript/Node so it can reuse TypeScript-owned API contracts, authorization helpers, workspace scoping, and Prisma-backed access patterns without giving the Python agent raw database credentials.
+
+In the autonomous team, the MCP Tool Agent is responsible for discovering available MCP tools, choosing relevant business tools, calling them, and turning successful results into exact evidence for Q&A. The Q&A and Response agents should answer from those verified tool results rather than inventing facts.
+
+## Agent Tool Choice Flow
+
+The local MVP tool-choice path is:
+
+1. Python starts an autonomous run through `POST /agent/runs/start`.
+2. The Manager Agent determines the run intent and whether exact company data may help.
+3. The MCP Tool Agent loads the MCP tool list from `services/mcp-server/`.
+4. The MCP Tool Agent chooses relevant controlled tools from the intent, attachments, question text, and run context.
+5. Each MCP call is emitted as an `AgentStep` with safe arguments, status, and a short output summary.
+6. Successful tool results become exact evidence for the Q&A Agent.
+7. The Response Agent writes the final employee-facing reply from verified extraction, Qdrant, and MCP tool outputs only.
+
+This is agent tool use through a controlled allowlist, not unrestricted tool access. The agent cannot execute raw SQL, shell commands, raw file reads, or arbitrary external actions through MCP.
 
 ## Ownership Model
 
@@ -64,22 +81,27 @@ For external databases or systems, MCP tools should be explicit, scoped, and rea
 
 ## Initial MCP Tool Surface
 
-Start with a small read-only tool set:
+The local MVP tool set:
 
-- `get_document_metadata`: return document metadata, type, status, and source references.
-- `get_processing_job`: return processing state, attempts, errors, and last successful stage.
-- `search_extracted_records`: search structured records using approved filters.
-- `get_extracted_record`: return extracted fields, confidence, validation status, and citations.
-- `lookup_reference_data`: check approved reference data for validation when configured.
+- `get_workspace_summary`
+- `search_documents`
+- `get_document_metadata`
+- `get_processing_job`
+- `search_extracted_records`
+- `get_extracted_record`
+- `get_agent_run`
+- `get_vector_references`
+- `list_webhook_sync_attempts`
+- `trigger_webhook_sync`
+- `request_document_reprocess`
 
 Later tools:
 
 - `search_external_crm`
 - `search_external_accounting`
 - `search_external_drive`
-- `retry_processing_job`
-- `mark_record_reviewed`
-- `trigger_webhook_sync`
+- review approval tools
+- connector-specific write tools
 
 Write tools should require authorization, audit logging, and explicit confirmation behavior where appropriate.
 
@@ -95,17 +117,19 @@ Write tools should require authorization, audit logging, and explicit confirmati
 
 ## Relationship To External AI Clients
 
-A Revenue Brains MCP server could later be exposed to external AI clients, but that is secondary. The first MCP reason is to give the Revenue Brains agent controlled tool access.
+A Revenue Brains MCP server can be used by local external MCP clients with bearer-token auth. The primary product reason is still to give the Revenue Brains Python agent controlled tool access.
 
 If external AI clients are supported later, they should use the same scoped tools and must not bypass authentication, workspace scoping, confidence gates, or audit logging.
 
 ## Roadmap Position
 
-MCP can be added after the core agent API exists. The safest order is:
+MCP is Phase 10 and completes the local MVP tool layer. The completed local MVP order is:
 
 1. Scaffold the web app and Python agent service.
 2. Implement chat ingestion, extraction, Postgres persistence, and Qdrant ingestion.
 3. Implement hybrid Q&A.
-4. Add auth and privacy hardening.
-5. Add a read-only MCP server for agent tools.
-6. Add write tools and external connectors only after audit and review flows are ready.
+4. Add the async autonomous agent team and visible run timeline.
+5. Add webhook sync for trusted extractions.
+6. Add a controlled MCP server plus Python MCP Tool Agent for agent/client tools.
+
+After Phase 10, future work should be production auth, external connectors, broader write tools, audit-grade review flows, and deployment hardening.

@@ -2,15 +2,18 @@
 
 ## Summary
 
-Revenue Brains currently has the Phase 7.1 stabilized autonomous LangGraph multi-agent team plus the RAG pipeline:
+Revenue Brains currently has the Phase 10 local MVP: the Phase 7.1 stabilized autonomous LangGraph multi-agent team plus the RAG pipeline, env-configured webhook sync, and controlled MCP tooling:
 
 - Next.js chat workspace in `apps/web`.
 - Prisma schema and migrations for Postgres-backed chat intake records plus extracted records, extracted fields, source references, and Qdrant vector references.
 - Multipart chat intake APIs for messages, attachments, documents, jobs, and extraction persistence.
 - Python FastAPI agent service in `services/agent`.
-- Python LangGraph autonomous run endpoint at `POST /agent/runs/start` for async Manager/Intake/Extraction/Critic/Memory/Q&A/Response work.
+- Python LangGraph autonomous run endpoint at `POST /agent/runs/start` for async Manager/Intake/Extraction/Critic/Memory/MCP Tool/Q&A/Response work.
 - Compatibility Python LangGraph supervisor endpoint at `POST /agent/respond`.
 - Internal TypeScript callback endpoints for agent run events, completion, and failure.
+- Env-configured webhook sync attempts for high-confidence extracted records.
+- TypeScript/Node MCP server in `services/mcp-server` with HTTP and stdio transports.
+- Python MCP Tool Agent support for discovering controlled Revenue Brains tools, choosing relevant exact-record calls, logging each call, and passing results to Q&A.
 - Python LangGraph ingestion graph behind `POST /documents/process` for TXT, Markdown, text-based PDF, and DOCX files.
 - Python LangGraph Q&A graph behind `POST /qa/plan` and `POST /qa/answer`.
 - LangChain structured extraction, OpenAI embeddings, and Qdrant vector storage/retrieval.
@@ -20,7 +23,7 @@ Revenue Brains currently has the Phase 7.1 stabilized autonomous LangGraph multi
 
 Phase 2 Docker Compose intentionally runs only Postgres and Qdrant. The web and agent services run locally with `npm` and `uv`. Web/agent Compose services are deferred to later full orchestration work.
 
-The current implementation proves chat ingestion through async autonomous agent runs, Postgres persistence, Qdrant vector ingestion, basic hybrid Q&A, safe callbacks, visible run timelines, and final success/review/failure states. It is a local MVP prototype, not production software. Auth, webhook sync, MCP tooling, OCR, CSV/XLSX extraction, tenant isolation, production deployment, and connector ingestion are not implemented yet.
+The current implementation proves chat ingestion through async autonomous agent runs, Postgres persistence, Qdrant vector ingestion, basic hybrid Q&A, safe callbacks, visible run timelines, final success/review/failure states, automatic webhook delivery for trusted extractions, and controlled MCP tool choice by the autonomous team. It is local MVP complete, not production software. Auth, OCR, CSV/XLSX extraction, tenant isolation, production deployment, retry queues, and connector ingestion are not implemented yet.
 
 ## Required Tooling
 
@@ -57,9 +60,16 @@ QDRANT_GRPC_PORT=6334
 UPLOAD_STORAGE_PATH=./uploads
 WEBHOOK_URL=
 WEBHOOK_SECRET=
+MCP_SERVER_URL=http://localhost:8787/mcp
+MCP_SERVER_TOKEN=change-me-local-mcp-token
+MCP_INTERNAL_API_TOKEN=change-me-internal-mcp-token
+MCP_CLIENT_ENABLED=true
+MCP_REQUEST_TIMEOUT_MS=8000
 ```
 
 Real values should live in ignored local environment files such as `.env` or `.env.local`. Docker Compose reads `.env` automatically when present. Only placeholder templates should be committed.
+
+When `WEBHOOK_URL` is blank, eligible extraction sync attempts are recorded as skipped. When `WEBHOOK_URL` is set, `WEBHOOK_SECRET` is required so outgoing payloads can be signed with `x-revenue-brains-signature`.
 
 ## First-Time Setup
 
@@ -107,6 +117,18 @@ Start the Python agent service from `services/agent`:
 python -m uv run uvicorn app.main:app --reload --reload-exclude .venv --port 8000
 ```
 
+Start the MCP server from the repository root:
+
+```bash
+npm run dev:mcp
+```
+
+Use stdio mode for local MCP clients:
+
+```bash
+npm run mcp:stdio
+```
+
 Start local data services from the repository root:
 
 ```bash
@@ -119,6 +141,7 @@ Current local endpoints:
 - Web health: `http://localhost:3000/api/health`
 - Python agent service: `http://localhost:8000`
 - Python agent health: `http://localhost:8000/health`
+- MCP server HTTP: `http://localhost:8787/mcp`
 - Postgres: `localhost:5432`
 - Qdrant HTTP: `http://localhost:6333`
 - Qdrant gRPC: `localhost:6334`
@@ -135,6 +158,7 @@ npm run db:generate
 npm test
 npm run lint
 npm run build
+npm run test:mcp
 ```
 
 Python checks from `services/agent`:
@@ -152,16 +176,23 @@ docker compose config
 docker compose ps
 ```
 
-Manual Phase 7.1 acceptance checklist:
+Inspect saved Postgres and Qdrant data with [Data inspection](data-inspection.md).
 
-1. Start Postgres/Qdrant, the web app, and the Python agent.
+Manual Local MVP acceptance checklist:
+
+1. Start Postgres/Qdrant, the web app, the Python agent, and the MCP server.
 2. Upload a safe synthetic invoice or Markdown document in chat.
-3. Confirm the agent timeline progresses through multiple agents.
+3. Confirm the agent timeline progresses through Manager, Intake, Extraction, Critic, Memory, MCP Tool, Q&A, and Response agents when relevant.
 4. Confirm extraction records and vector references appear in the status panel.
 5. Ask a question about the uploaded document.
 6. Confirm the answer includes citations or a clear limitation.
 7. Send an ambiguous message and confirm the agent asks for clarification.
-8. Simulate an agent failure and confirm the UI shows a safe failed state instead of a stuck running state.
+8. Configure a local webhook receiver with `WEBHOOK_URL` and `WEBHOOK_SECRET`.
+9. Confirm a trusted extraction creates a delivered `WebhookSyncAttempt`.
+10. Confirm a review-needed extraction does not send externally.
+11. Connect a local MCP client with `MCP_SERVER_TOKEN`.
+12. Call `search_extracted_records`, `get_document_metadata`, and `get_agent_run`.
+13. Ask an exact-record question and confirm the timeline logs MCP Tool Agent calls before the Q&A/Response answer.
 
 Stop infrastructure while preserving named volumes:
 
@@ -196,15 +227,18 @@ Implemented:
 - Conversation read endpoint at `GET /api/chat/:conversationId`.
 - Processing job read endpoint at `GET /api/jobs/:jobId`.
 - Prisma schema and migrations for workspace, conversation, message, document, processing job, extracted record, extracted field, and source reference records.
+- Prisma schema and migration for webhook sync attempt records.
 - FastAPI app scaffold.
 - Agent health endpoint at `GET /health`.
 - LangGraph autonomous team endpoint at `POST /agent/runs/start` that accepts async runs.
+- MCP Tool Agent calls exact-record tools through the TypeScript/Node MCP server and logs each call as an agent step.
 - TypeScript callback endpoints for agent run events, completion, and failure.
 - Public run timeline endpoint at `GET /api/agent-runs/:runId`.
 - Compatibility LangGraph supervisor endpoint at `POST /agent/respond` that chooses document ingestion, Q&A, both, clarification, or unsupported response.
 - LangGraph document processing endpoint at `POST /documents/process` with parsing, classification, extraction, AI-native agent assessment, chunking, Qdrant vector ingestion, vector references, confidence, and structured errors.
 - LangGraph Q&A endpoints at `POST /qa/plan` and `POST /qa/answer`.
 - Practical Q&A citations in the chat workspace with source type, title or source ID, snippet, confidence, retrieval mode, and limitations where available.
+- Env-configured automatic webhook sync for trusted extracted records.
 - Web tests for health degradation, chat attachment persistence with mocked Python extraction, text-only Q&A citation metadata, and agent-run callback handling.
 - Python tests for agent health, parsing, classification, extraction validation, vector-reference behavior, structured document errors, Q&A route contracts, autonomous routing, review decisions, clarification, unsupported requests, and safe failure callbacks.
 - Local Postgres and Qdrant Compose infrastructure.
@@ -213,7 +247,7 @@ Implemented:
 Not implemented yet:
 
 - Web/agent Compose containers.
-- Auth, webhook sync, MCP server, OCR, CSV/XLSX extraction, connector imports, or production deployment.
+- Auth, OCR, CSV/XLSX extraction, connector imports, retry queues, or production deployment.
 
 ## Local Development Assumptions
 

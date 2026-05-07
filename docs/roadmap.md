@@ -123,7 +123,7 @@ Deferred Phase 6 refinements now move into Phase 7+ stabilization:
 
 ## Phase 7: Autonomous Multi-Agent Document Team
 
-Status: complete as the current local MVP foundation.
+Status: complete as the async agent-run foundation.
 
 Goals:
 
@@ -137,18 +137,21 @@ Goals:
 
 Done means employees experience a team of agents working asynchronously: the Manager plans, agents do their work, callbacks persist progress, and the UI can poll the run timeline until the final Response Agent reply appears.
 
-Deferred from Phase 7:
+Deferred from Phase 7 and completed later in Phase 10:
+
+- MCP tool layer
+
+Still deferred from Phase 7:
 
 - arbitrary external tools
 - shell access
 - connector sync
-- MCP tool layer
 - production queues/workers
 - auth, tenant isolation, OCR, CSV/XLSX, and webhook sync
 
 ## Phase 7.1: Stabilization And Run Reliability
 
-Status: current stabilization milestone.
+Status: complete.
 
 Goals:
 
@@ -172,6 +175,8 @@ Deferred from Phase 7.1:
 
 ## Phase 8: Webhook Sync
 
+Status: complete.
+
 Goals:
 
 - add generic webhook configuration
@@ -180,6 +185,15 @@ Goals:
 - track sync attempts, failures, and retries
 
 Done means Revenue Brains can push trusted extracted data to another system without a vendor-specific integration.
+
+The local MVP uses env-only configuration with `WEBHOOK_URL` and `WEBHOOK_SECRET`. It records `WebhookSyncAttempt` rows for eligible deliveries, skips when the URL is blank, signs outgoing JSON, and does not fail the agent run when delivery fails.
+
+Deferred from Phase 8:
+
+- webhook settings UI
+- retry queue and backoff worker
+- per-workspace webhook management
+- auth-gated webhook administration
 
 ## Phase 9: Authentication And Privacy Hardening
 
@@ -195,24 +209,30 @@ Done means the MVP has route-level protection and stronger privacy controls for 
 
 ## Phase 10: MCP Agent Tool Server
 
+Status: complete. Revenue Brains is now Local MVP Done, not production-ready.
+
 Goals:
 
-- add an MCP server that exposes controlled tools to the Python agent
+- add an MCP server that exposes controlled tools to the Python agent and local MCP clients
 - implement the MCP server as a TypeScript/Node service
 - configure the Python agent service as an MCP client
 - expose read-only tools for document metadata, extracted records, processing jobs, and approved reference data
+- load the MCP tool list inside the Python autonomous team
+- let the MCP Tool Agent choose relevant exact-record tools from run intent, attachments, question text, and run context
+- log each MCP tool call as an `AgentStep` with safe arguments, status, and output summary
+- pass successful MCP tool results to Q&A and Response agents as verified evidence
 - route exact-record MCP tools through TypeScript-owned Postgres APIs or shared TypeScript data-access code
 - keep semantic retrieval and answer generation inside the Python agent/Q&A flow
 - enforce workspace scoping, authorization, and audit logging
 
-Done means the Python agent can use safe MCP tools without receiving raw database credentials or bypassing the app's Postgres, Qdrant, auth, or audit boundaries.
+Done means the Python agent and local external MCP clients can use safe Revenue Brains tools without receiving raw database credentials or bypassing the app's Postgres, Qdrant, confidence, or audit boundaries. After this phase, the core local MVP is complete; future work should be bug fixes, polish, production hardening, or optional integrations.
 
 ## Future Integrations
 
 Add only after the core loop works:
 
-- write-capable MCP tools
-- exposing MCP tools to external AI clients
+- arbitrary write-capable MCP tools
+- production external MCP client access with full user auth
 - email ingestion
 - Google Drive ingestion
 - CRM sync

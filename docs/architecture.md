@@ -8,7 +8,7 @@ TypeScript owns the product application: chat workspace, dashboard/status views,
 
 Postgres and Qdrant serve different purposes. Postgres stores exact structured records. Qdrant stores vector memory for semantic retrieval.
 
-The current implementation is a local Phase 7.1 MVP. Phase 5 proved chat ingestion, extraction, vector memory, basic hybrid Q&A, practical citations, and dependency-aware health checks. Phase 6 added a supervisor agent that decides which controlled tools to use for each chat request. Phase 7 added async autonomous agent runs with a Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agent team. Phase 7.1 stabilizes run final states, safe callbacks, test coverage, and the visible activity timeline. It is not production-ready.
+The current implementation is a local Phase 10 MVP. Phase 5 proved chat ingestion, extraction, vector memory, basic hybrid Q&A, practical citations, and dependency-aware health checks. Phase 6 added a supervisor agent that decides which controlled tools to use for each chat request. Phase 7 added async autonomous agent runs with a Manager, Intake, Extraction, Validation/Critic, Memory, MCP Tool, Q&A, and Response agent team. Phase 7.1 stabilized run final states, safe callbacks, test coverage, and the visible activity timeline. Phase 8 adds env-configured webhook sync for trusted extracted records. Phase 10 adds a controlled MCP server and Python MCP client. It is local MVP complete, not production-ready.
 
 ## System Diagram
 
@@ -42,7 +42,7 @@ The Next.js app should handle:
 - authenticated single-company workspace behavior
 - Postgres access through Prisma
 - calls to the Python agent service
-- webhook sync for high-confidence records once the deferred webhook milestone exists
+- webhook sync for high-confidence records through the env-configured Phase 8 delivery path
 - Q&A user experience
 - dependency-aware health reporting for local Postgres, Python agent, Qdrant, and configured Qdrant collection
 
@@ -112,11 +112,11 @@ Use Qdrant for semantic retrieval, not as the only database for business records
 
 Qdrant metadata should be enough to find the related source document and Postgres record, but source identity and audit state should remain durable in Postgres.
 
-## Future MCP Agent Tool Server
+## MCP Agent Tool Server
 
-Revenue Brains can add a TypeScript/Node MCP server after the core MVP and privacy hardening are working. The primary MCP use case is letting the Python agent act as an MCP client and call controlled tools for document metadata, extracted-record lookup, processing job status, approved reference data, and later external systems.
+Revenue Brains includes a TypeScript/Node MCP server for controlled tools. The Python autonomous team has an MCP Tool Agent that loads available tools, chooses relevant tool calls, logs each call as an `AgentStep`, and passes returned exact-record evidence to the Q&A Agent. The primary MCP use case is letting the Python agent act as an MCP client and call controlled tools for document metadata, extracted-record lookup, processing job status, agent run state, vector references, webhook attempts, and safe reprocessing/webhook actions.
 
-The TypeScript/Node MCP server should follow the existing ownership model. Exact-record tools should call TypeScript-owned APIs or shared TypeScript data-access code for Prisma-backed Postgres reads. Semantic retrieval and answer generation should remain inside the Python agent/Q&A flow. MCP should not pass raw database credentials to the Python agent or bypass authentication, workspace scoping, confidence gates, or audit logging.
+The TypeScript/Node MCP server follows the existing ownership model. Exact-record tools call TypeScript-owned APIs or shared TypeScript data-access code for Prisma-backed Postgres reads. Semantic retrieval and answer generation remain inside the Python agent/Q&A flow. MCP must not pass raw database credentials to the Python agent or bypass token auth, workspace scoping, confidence gates, or audit logging.
 
 ## Chat Document Ingestion Flow
 
@@ -138,10 +138,10 @@ Chat message with attachments
   -> store Qdrant vector references in Postgres
   -> create an agent chat reply with summary, status, confidence, and record links
   -> mark job complete or failed
-  -> later webhook milestone may sync high-confidence records
+  -> Phase 8 webhook sync may deliver high-confidence records externally
 ```
 
-The current implementation follows this flow with a LangGraph autonomous team over LangGraph ingestion and Q&A graphs. Phase 7.1 also ensures completed, review-needed, and failed runs settle into clear persisted states. Webhook sync remains deferred.
+The current implementation follows this flow with a LangGraph autonomous team over LangGraph ingestion and Q&A graphs. Phase 7.1 also ensures completed, review-needed, and failed runs settle into clear persisted states. Phase 8 sends only trusted extracted records to the env-configured webhook and records delivery attempts in Postgres.
 
 ## Autonomous Agent Run Flow
 
@@ -154,6 +154,7 @@ POST /api/chat/messages
   -> Extraction Agent calls the ingestion graph when needed
   -> Validation/Critic Agent checks quality and review need from agent outputs
   -> Memory Agent confirms vector memory references from Qdrant ingestion
+  -> MCP Tool Agent chooses and calls controlled exact-record tools when useful
   -> Q&A Agent answers when the request asks a question
   -> Response Agent writes the final employee-facing message from verified outputs only
   -> Python calls TypeScript events/complete/fail callbacks

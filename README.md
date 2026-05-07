@@ -35,12 +35,12 @@ The initial file formats are text-based PDFs, DOCX, plain text, and Markdown. OC
 1. An employee sends a chat message with one or more documents attached and optional instructions.
 2. The TypeScript app stores the chat message, original files, document metadata, and processing jobs.
 3. The TypeScript app creates an async `AgentRun`, a pending assistant message, and calls the Python autonomous team with storage keys, attachment metadata, recent Postgres evidence, callback details, and user instructions.
-4. The Manager Agent plans the run and delegates work to the Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agents.
+4. The Manager Agent plans the run and delegates work to the Intake, Extraction, Validation/Critic, Memory, MCP Tool, Q&A, and Response agents.
 5. Python emits progress events back to TypeScript callback endpoints, and TypeScript persists each step for the activity timeline.
 6. When document processing is needed, the ingestion graph parses the documents, classifies each document type, extracts structured fields, validates evidence, and stores vector memory in Qdrant.
 7. The Validation/Critic Agent decides whether the output is safe to save automatically or needs review.
 8. The TypeScript app saves exact structured records, Qdrant vector references, run artifacts, processing status, and the final assistant reply into Postgres.
-9. Employees can continue asking questions in the same chat, and the multi-agent team can use Postgres evidence, Qdrant memory, or both.
+9. Employees can continue asking questions in the same chat, and the multi-agent team can choose controlled MCP tools for exact Postgres-backed records, Qdrant memory, or both.
 
 Low-confidence results are still saved internally for visibility and review, but external sync is blocked until the result is trusted.
 
@@ -61,7 +61,7 @@ Revenue Brains is planned as a monorepo with a clear TypeScript/Python split:
 
 The boundary should be documented HTTP APIs, not duplicated logic. The TypeScript app should send processing requests containing conversation ID, message ID, document ID, workspace ID, file storage key, checksum, filename, content type, user instructions, and processing options. The Python service should return typed extraction results, agent assessment decisions, validation details, confidence scores, source references, Qdrant vector IDs, chat reply content, and structured errors.
 
-Postgres reads and writes should be owned by the TypeScript app through Prisma. Python should not connect directly to Postgres in the MVP; for Q&A it should receive structured Postgres evidence from TypeScript or return a typed retrieval plan for TypeScript to execute. Qdrant reads and writes should be owned by the Python agent service, with vector references returned to the TypeScript app so they can be linked back to Postgres records and jobs.
+Postgres reads and writes should be owned by the TypeScript app through Prisma. Python should not connect directly to Postgres in the MVP; for Q&A it should receive structured Postgres evidence from TypeScript or call controlled MCP tools exposed by the TypeScript/Node MCP server. Qdrant reads and writes should be owned by the Python agent service, with vector references returned to the TypeScript app so they can be linked back to Postgres records and jobs.
 
 ## AI-Native Confidence And Review
 
@@ -73,26 +73,26 @@ Field-level confidence should be stored alongside document-level confidence. Whe
 
 The Q&A path should choose the data source based on the question:
 
-- Exact record questions, such as invoice totals, due dates, vendors, renewal dates, processing status, or sync status, should use Postgres.
+- Exact record questions, such as invoice totals, due dates, vendors, renewal dates, processing status, or sync status, should use TypeScript-owned Postgres evidence, usually through controlled MCP tools.
 - Semantic questions, such as policy meaning, contract clause interpretation, or general document context, should use Qdrant retrieval.
 - Mixed questions should use both Postgres records and Qdrant evidence.
 
-The TypeScript app should perform Postgres reads for exact records. The Python service should perform Qdrant retrieval and final answer generation from typed evidence.
+The TypeScript app should perform Postgres reads for exact records. The Python autonomous team should discover the MCP tool list, choose relevant exact-record tools, log each MCP call as an agent step, and then perform Qdrant retrieval plus final answer generation from typed evidence.
 
 Answers should include citations whenever they rely on document content. If the system cannot find enough evidence, it should say so rather than inventing an answer.
 
 ## Webhook Sync Scope
 
-Generic webhook sync is part of the MVP direction, but it should come after the core chat ingestion, extraction, storage, and Q&A loop works. When added, webhook sync should send trusted structured records with document metadata, source references, confidence, and validation status.
+Generic webhook sync is part of the MVP direction and starts as a single env-configured local webhook. It sends trusted structured records with document metadata, source references, confidence, validation status, and Qdrant vector references.
 
-The TypeScript app should own webhook configuration, delivery attempts, retry state, failure messages, and dashboard visibility. Low-confidence, medium-confidence, incomplete, or failed results must not be sent externally.
+The TypeScript app owns webhook configuration, delivery attempts, failure messages, and dashboard visibility. Low-confidence, medium-confidence, incomplete, review-needed, unsupported, clarification, or failed results must not be sent externally.
 
 ## Planned Tech Stack
 
 - **Dashboard and product backend:** Next.js, React, TypeScript
 - **Agent and RAG service:** Python, FastAPI, uv
 - **Agent framework:** LangGraph for the autonomous multi-agent team and controlled ingestion/Q&A graphs; LangChain for structured model calls, embeddings, and Qdrant integration
-- **Future agent tool layer:** TypeScript/Node MCP server for controlled agent tools after the core MVP is working
+- **Agent tool layer:** TypeScript/Node MCP server for controlled Revenue Brains tools over HTTP or stdio; the Python MCP Tool Agent discovers available tools, chooses relevant calls, and logs each result
 - **Structured database:** Postgres
 - **Vector database:** Qdrant
 - **Database access:** Prisma for the TypeScript app
@@ -109,20 +109,22 @@ Employee chat message + document attachments
 Next.js chat workspace, dashboard views, and API
       |-- Prisma records, jobs, vector refs --> Postgres
       |
-      |-- HTTP processing, retrieval planning, answers --> Python FastAPI agent service
-                                                               |
-                                                               |-- classify, extract, validate, embed, retrieve --> Qdrant
+      |-- HTTP async agent runs --> Python FastAPI agent service
+      |                         |-- MCP client tool calls --> TypeScript/Node MCP server
+      |                         |                              |-- controlled exact-record reads/actions --> Next.js internal APIs
+      |                         |
+      |                         |-- classify, extract, validate, embed, retrieve --> Qdrant
 ```
 
 Postgres and Qdrant have different jobs. Postgres is the source of truth for exact extracted records. Qdrant is the semantic retrieval layer for RAG.
 
 ## Repository Status
 
-This repository currently contains the Phase 7.1 stabilized local MVP: the Phase 7 autonomous multi-agent milestone on top of the Phase 5 LangGraph/RAG foundation and Phase 6 supervisor layer. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs/agent runs/agent steps/agent artifacts, generic extracted records/fields/source references, Qdrant vector references, multipart chat intake APIs, private local attachment storage, dependency-aware health checks, and a Python FastAPI agent service.
+This repository currently contains the Phase 10 local MVP on top of the Phase 7.1 stabilized autonomous multi-agent flow. It includes a Next.js chat workspace, Prisma schema and migrations for conversations/messages/documents/jobs/agent runs/agent steps/agent artifacts, generic extracted records/fields/source references, Qdrant vector references, webhook sync attempts, multipart chat intake APIs, private local attachment storage, dependency-aware health checks, a Python FastAPI agent service, and a TypeScript/Node MCP server.
 
-The Python service now uses LangGraph for an autonomous document team plus lower-level ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by agents, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Chat messages create async agent runs, the Python team emits safe progress/completion/failure callbacks, and the UI shows a multi-agent activity timeline with clear final states while the run completes.
+The Python service now uses LangGraph for an autonomous document team plus lower-level ingestion and Q&A workflows, LangChain for structured extraction and OpenAI embeddings, and Qdrant for vector memory. Chat-attached TXT/MD/text-based PDF/DOCX files are parsed, extracted, assessed by agents, chunked, embedded, stored in Qdrant, linked back into Postgres, and displayed in the workspace. Chat messages create async agent runs, the Python team emits safe progress/completion/failure callbacks, and the UI shows a multi-agent activity timeline with clear final states while the run completes. The MCP Tool Agent discovers controlled MCP tools, chooses relevant exact-record tool calls, logs each call as an `AgentStep`, and passes verified tool results to Q&A and Response agents.
 
-This is still a local MVP prototype, not production software. It does not yet contain auth, webhook sync, MCP tooling, connector imports, OCR, CSV/XLSX extraction, production deployment workflows, or tenant isolation.
+This repository now contains the Local MVP completion layer: Phase 10 MCP tooling on top of the Phase 8/7.1 autonomous document flow. It is still a local MVP prototype, not production software. It does not yet contain auth, connector imports, OCR, CSV/XLSX extraction, production deployment workflows, retry queues, or tenant isolation.
 
 Planned top-level structure:
 
@@ -131,7 +133,7 @@ apps/
   web/              Next.js chat workspace, dashboard/status views, API routes, and TypeScript app tests
 services/
   agent/            Python FastAPI service, agent modules, and Python tests
-  mcp-server/       future TypeScript/Node MCP server exposing controlled tools to the Python agent
+  mcp-server/       TypeScript/Node MCP server exposing controlled tools to the Python agent and local MCP clients
 packages/
   shared/           optional shared API schemas and generated types
 tests/
@@ -195,6 +197,7 @@ npm run db:migrate
 npm test
 npm run lint
 npm run build
+npm run test:mcp
 ```
 
 Prisma commands from the repository root:
@@ -216,6 +219,20 @@ Live extraction and RAG require `OPENAI_API_KEY`, `OPENAI_MODEL`, `OPENAI_EMBEDD
 
 Async autonomous runs also require `AGENT_CALLBACK_BASE_URL` and `AGENT_CALLBACK_SECRET` in local `.env` so Python can send progress, completion, and failure callbacks to the TypeScript app. The default local callback base URL is `http://localhost:3000`.
 
+Run the Revenue Brains MCP server from the repository root:
+
+```bash
+npm run dev:mcp
+```
+
+The HTTP endpoint is `http://localhost:8787/mcp` and requires `Authorization: Bearer <MCP_SERVER_TOKEN>`. For stdio-capable local MCP clients, run:
+
+```bash
+npm run mcp:stdio
+```
+
+The MCP server exposes controlled tools for document metadata, extracted records, agent runs, vector references, webhook attempts, webhook trigger, and document reprocessing. It does not expose raw SQL, shell access, raw private uploads, secrets, or unrestricted filesystem tools.
+
 Verify the Python agent service from `services/agent`:
 
 ```bash
@@ -224,14 +241,17 @@ python -m uv run ruff check
 python -m uv run ruff format --check
 ```
 
-Manual Phase 7.1 acceptance checklist:
+Manual Local MVP acceptance checklist:
 
 - Upload a safe synthetic invoice or Markdown document in chat.
-- Confirm the agent timeline shows Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response steps.
+- Confirm the agent timeline shows Manager, Intake, Extraction, Validation/Critic, Memory, MCP Tool, Q&A, and Response steps when relevant.
 - Confirm extraction records and vector references appear in the status panel.
-- Ask a question about the uploaded document and confirm the answer includes citations or a clear limitation.
+- Ask a question about the uploaded document and confirm the MCP Tool Agent logs exact-record tool calls, then Q&A/Response returns citations or a clear limitation.
 - Send an ambiguous message and confirm the agent asks for clarification.
-- Simulate or observe an agent failure and confirm the UI shows a safe failed state instead of staying stuck.
+- Configure a local webhook receiver with `WEBHOOK_URL` and `WEBHOOK_SECRET`.
+- Confirm a trusted extraction creates a delivered `WebhookSyncAttempt`.
+- Confirm a review-needed extraction does not send externally.
+- Connect a local MCP client with `MCP_SERVER_TOKEN` and call `search_extracted_records`, `get_document_metadata`, or `get_agent_run`.
 
 Web and agent Docker Compose services are intentionally deferred to later full orchestration work. Phase 2 Compose runs Postgres and Qdrant only.
 
@@ -245,7 +265,8 @@ Recommended reading order:
 - [Architecture](docs/architecture.md): authoritative system responsibilities, storage roles, and Q&A routing.
 - [Agent design](docs/agent-design.md): Python ingestion and Q&A agent inputs, outputs, validation, and guardrails.
 - [API contracts](docs/api/README.md): planned HTTP boundary between TypeScript and Python.
-- [MCP strategy](docs/mcp-strategy.md): future agent tool server boundaries and safe MCP surface.
+- [Data inspection](docs/data-inspection.md): local Prisma Studio, SQL, and Qdrant inspection commands.
+- [MCP strategy](docs/mcp-strategy.md): current MCP server/client boundaries and safe tool surface.
 - [Roadmap](docs/roadmap.md): milestone order and what should wait.
 - [Scaffold plan](docs/scaffold-plan.md): Phase 2 target structure, services, ports, commands, and done checklist.
 - [Development setup](docs/development-setup.md): planned local services, environment variables, and future commands.

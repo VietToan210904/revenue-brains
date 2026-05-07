@@ -46,6 +46,7 @@ The MVP should support:
 - chat replies with processing status, summaries, confidence, practical citations, and links to records
 - dashboard/status views for conversations, processing jobs, extracted records, confidence, source references, and Q&A history
 - generic webhook sync after the core chat-ingestion-to-Q&A loop is working
+- a controlled MCP server/client layer for safe Revenue Brains tool access
 
 The MVP should be automatic by default, but it must block external sync for low-confidence or incomplete results.
 
@@ -179,7 +180,7 @@ Do not build these in the first implementation:
 - email ingestion
 - Google Drive ingestion
 - CRM, ERP, or accounting connectors
-- MCP agent tool server, write-capable MCP tools, or broad external AI tool access
+- arbitrary write-capable MCP tools or broad external AI tool access
 - vendor-specific sync
 - advanced analytics dashboards
 - admin-defined custom extraction schemas

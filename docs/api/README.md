@@ -1,6 +1,8 @@
 # API Contracts
 
-This directory documents the HTTP boundary between the TypeScript web app and the Python agent service. The current implementation includes web health, chat ingestion, async autonomous agent runs, internal agent-run callbacks, conversation/job reads, Python health, a compatibility LangGraph supervisor endpoint, LangGraph document ingestion with extraction and Qdrant vector storage, and LangGraph Q&A planning/answer routes.
+This directory documents the HTTP boundary between the TypeScript web app, the Python agent service, and the Revenue Brains MCP server. The current implementation includes web health, chat ingestion, async autonomous agent runs, internal agent-run callbacks, conversation/job reads, Python health, a compatibility LangGraph supervisor endpoint, LangGraph document ingestion with extraction and Qdrant vector storage, LangGraph Q&A planning/answer routes, webhook sync, and controlled MCP tools.
+
+The TypeScript app also owns outgoing webhook sync for trusted extracted records. Python never calls external webhooks directly.
 
 ## Ownership
 
@@ -9,6 +11,33 @@ This directory documents the HTTP boundary between the TypeScript web app and th
 - Python should not connect directly to Postgres in the MVP.
 - Q&A flows that need exact records should use typed retrieval plans and structured Postgres evidence passed through the TypeScript app.
 - Chat message and attachment APIs are the primary MVP ingestion interface. A separate dashboard upload endpoint should not be added before the chat ingestion flow works.
+
+## Implemented MCP Interfaces
+
+The TypeScript/Node MCP server runs from `services/mcp-server/` and supports:
+
+- Streamable HTTP at `http://localhost:8787/mcp`
+- stdio mode through `npm run mcp:stdio`
+
+HTTP requests require `Authorization: Bearer <MCP_SERVER_TOKEN>`. The MCP server calls the web app's internal tool executor at `POST /api/internal/mcp/tools` using `x-mcp-internal-token`, so Postgres access remains TypeScript-owned through Prisma.
+
+During autonomous runs, the Python MCP Tool Agent loads the available MCP tool list, chooses relevant tools from the Manager intent, attachments, question text, and run context, calls the MCP server, and emits one `AgentStep` for each MCP tool call. Successful MCP results are converted into exact evidence for the Q&A Agent and verified context for the Response Agent.
+
+Implemented tools:
+
+- `get_workspace_summary`
+- `search_documents`
+- `get_document_metadata`
+- `get_processing_job`
+- `search_extracted_records`
+- `get_extracted_record`
+- `get_agent_run`
+- `get_vector_references`
+- `list_webhook_sync_attempts`
+- `trigger_webhook_sync`
+- `request_document_reprocess`
+
+The MCP layer must not expose raw SQL, shell execution, raw private uploads, full document text, secrets, raw embeddings, or unrestricted filesystem tools.
 
 ## Implemented Web Endpoints
 
@@ -149,7 +178,7 @@ Accepted response shape:
 }
 ```
 
-The autonomous team emits ordered callback events for the Manager, Intake, Extraction, Validation/Critic, Memory, Q&A, and Response agents. Completion payloads include `intent`, `toolActions`, `extractions`, optional `qaAnswer`, `automationDecision`, `reply`, and safe artifacts. Failure payloads include a safe error message and optional agent name.
+The autonomous team emits ordered callback events for the Manager, Intake, Extraction, Validation/Critic, Memory, MCP Tool, Q&A, and Response agents. Completion payloads include `intent`, `toolActions`, `extractions`, optional `qaAnswer`, `automationDecision`, `reply`, and safe artifacts. MCP tool calls are logged as agent steps with safe arguments, status, and output summaries. Failure payloads include a safe error message and optional agent name.
 
 ### `POST /agent/respond`
 
@@ -382,12 +411,37 @@ Live processing requires `OPENAI_API_KEY`. `OPENAI_MODEL` defaults to `gpt-4.1-m
 
 ## MVP Q&A Flow
 
-For normal chat questions, TypeScript starts an autonomous run with the question, conversation context, and recent Postgres evidence. The Manager Agent can delegate to the Q&A Agent, which retrieves from Qdrant and answers.
+For normal chat questions, TypeScript starts an autonomous run with the question, conversation context, and recent Postgres evidence. The Manager Agent can delegate to the MCP Tool Agent for exact-record tools and to the Q&A Agent for Qdrant retrieval and answer generation.
 
 For exact-record or hybrid questions:
 
 1. TypeScript sends the question, conversation context, and recent structured evidence to the autonomous team.
 2. The Manager Agent decides whether Q&A is needed.
-3. The Q&A graph plans Postgres, Qdrant, or hybrid retrieval.
-4. Python combines TypeScript-supplied structured evidence with Qdrant evidence when needed.
-5. Python returns the cited answer through the autonomous run completion callback.
+3. The MCP Tool Agent chooses and calls exact-record MCP tools when useful.
+4. The Q&A graph plans Qdrant or hybrid retrieval.
+5. Python combines TypeScript-supplied structured evidence, MCP tool results, and Qdrant evidence when needed.
+6. Python returns the cited answer through the autonomous run completion callback.
+
+## Outgoing Webhook Sync
+
+Current status: implemented as Phase 8 env-configured sync for high-confidence extracted records.
+
+`WEBHOOK_URL` controls delivery. Blank means disabled and creates a skipped sync attempt for otherwise eligible records. `WEBHOOK_SECRET` is required when `WEBHOOK_URL` is set and signs the raw JSON payload.
+
+Eligible records:
+
+- document status is `EXTRACTED`
+- extracted record validation status is `PASSED`
+- agent automation decision is `safe_to_save`
+
+Review-needed, failed, unsupported, clarification, or missing-extraction runs are not sent externally.
+
+Outgoing headers:
+
+```txt
+x-revenue-brains-event: extraction.completed
+x-revenue-brains-delivery-id: <WebhookSyncAttempt.id>
+x-revenue-brains-signature: sha256=<hmac>
+```
+
+Payload includes safe structured data only: workspace/document/conversation IDs, original filename, content type, storage key, checksum, extracted record title/summary/confidence/status, extracted fields, source reference snippets, vector reference IDs/previews, agent run ID, and automation decision. It must not include raw full document text, API keys, raw database credentials, or full model traces.
